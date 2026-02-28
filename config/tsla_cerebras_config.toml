@@ -1,6 +1,6 @@
 [chat]
-model = "qwen-3-235b-a22b-instruct-2507"
-end_point = "https://api.openai.com/v1/chat/completions"
+model = "zai-glm-4.7"
+end_point = "https://api.cerebras.ai/v1/chat/completions"
 system_message = "You are a helpful assistant."
 
 
