@@ -20,17 +20,17 @@ This repo provides the Python source code for the paper:
       primaryClass={q-fin.CP}
 }
 ```
-**📢 Update (Date: 01-16-2024)**
+Update (Date: 01-16-2024)
 
-🚀 We're excited to share that our work, "FINMEM: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design," has been selected for an extended abstract at the AAAI Spring Symposium on Human-Like Learning!
+Our work, "FINMEM: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design," has been selected for an extended abstract at the AAAI Spring Symposium on Human-Like Learning!
 
-**📢 Update (Date: 03-11-2024)**
+Update (Date: 03-11-2024)
 
-🚀 We're thrilled to announce that our paper, "FINMEM: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design", has been accepted by ICLR Workshop LLM Agents!
+Our paper, "FINMEM: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design", has been accepted by ICLR Workshop LLM Agents!
 
-**📢 Update (Date: 06-16-2024)**
+Update (Date: 06-16-2024)
 
-🎉 Thank you to all the participants and organizers of the IJCAI2024 challenge, "Financial Challenges in Large Language Models - FinLLM". Our team, FinMem, was thrilled to contribute to Task 3: Single Stock Trading.
+Thank you to all the participants and organizers of the IJCAI2024 challenge, "Financial Challenges in Large Language Models - FinLLM". Our team, FinMem, was thrilled to contribute to Task 3: Single Stock Trading.
 
 As the challenge wrapped up yesterday (06/15/2024), we reflect on the innovative approaches and insights gained throughout this journey. A total of 12 teams participated, each bringing unique perspectives and solutions to the forefront of financial AI and Large Language Models.
 
@@ -46,118 +46,106 @@ Recent advancements in Large Language Models (LLMs) have exhibited notable effic
 ## Repository Structure
 
 ```bash
-finmem-docker
-├── LICENSE
-├── README.md
-├── config  -> Configurations for the program
-├── data  -> Data
-├── puppy  -> Source code
-├── run.py  -> Entry point of the program, see below for details
-├── run_examples.sh  -> Bash cmd for build the docker image and run the docker container
+finmem
+|-- LICENSE
+|-- README.md
+|-- config           # Configurations for the program
+|-- data             # Data
+|-- puppy            # Source code
+|-- run.py           # Entry point of the program
+|-- tests            # Unit and integration tests
+|-- run_examples.sh  # Script for running examples
 ```
 
 
 
 ## Usage
 
-### Setting Environment Variables & Configurations for Different Models
+### Setting Environment Variables
 
-The model can be run with LLMs on HuggingFace that can be deployed via [TGI](https://github.com/huggingface/text-generation-inference) and has sufficient instruction following ability. As we will always use the `text-embedding-ada-002` as our embedding model, the `OPENAI_API_KEY` variable needs to be set in `.env` no matter what backbone LLM is used.
+The project uses Cerebras for LLM generation and HuggingFace for embeddings (defaulting to `intfloat/multilingual-e5-large`).
 
-If the LLM is gated, the `HF_TOKEN` needs to be set in `.env`
+Create a `.env` file in the root directory:
 
 ```bash
-OPENAI_API_KEY = "<Your OpenAI Key>"
+CEREBRAS_API_KEY = "<Your Cerebras API Key>"
 HF_TOKEN = "<Your HF token>"
 ```
 
-and set the `config/config.toml`
+### Setup with uv
 
+The recommended way to set up the environment is using [uv](https://github.com/astral-sh/uv).
+
+1. Create a virtual environment:
 ```bash
-[chat]
-model = "tgi"
-end_point = "<set the your endpoint address>"
-tokenization_model_name = "<model name>"
-...
+uv venv .venv --python 3.10
+source .venv/bin/activate
 ```
 
-To run the OpenAI model, the configuration file should be set as
-
+2. Install dependencies:
 ```bash
-model = "gpt-4"
-end_point = "https://api.openai.com/v1/chat/completions"
-tokenization_model_name = "gpt-4"
+uv pip install -r pyproject.toml
 ```
 
-and with comment out `HF_TOKEN` in `.env`
+### Running Tests
 
+A comprehensive test suite is available in the `tests/` directory.
+
+To run all tests and see a summary:
 ```bash
-OPENAI_API_KEY = "<Your OpenAI Key>"
-# HF_TOKEN = ""
+source .venv/bin/activate
+python tests/run_all_tests.py
 ```
 
-### Build Docker Image & Run the Container
+This will execute tests for:
+- HuggingFace Embedding integration
+- Cerebras LLM Chat functionality
+- Memory scoring and decay functions
+- MemoryDB and BrainDB operations
+- Portfolio tracking and feedback
+- Market Environment simulation loop
 
-The dockerfile is based on Python 3.10 at
-
-```bash
-.devcontainer/Dockerfile
-```
-
-To build the docker image, run
-
-```bash
-docker build -t test-finmem finmem/.devcontainer/. 
-```
-
-To start the container, run
-
-```bash
-docker run -it --rm -v $(pwd):/finmem test-finmem bash
-```
-
-This will enter the root folder of the project.
+Test results are stored JSON format in `tests/outputs/`.
 
 ## Program
 
 The program has two main functionalities:
 
 ```bash
- Usage: run.py sim [OPTIONS]                                                                                                                
-                                                                                                                                            
- Start Simulation                                                                                                                           
-                                                                                                                                            
-╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --market-data-path    -mdp      TEXT  The environment data pickle path [default: data/06_input/subset_symbols.pkl]                       │
-│ --start-time          -st       TEXT  The training or test start time [default: 2022-06-30 For Ticker 'TSLA']                                                               │
-│ --end-time            -et       TEXT  The training or test end time [default: 2022-10-11]                                                                 │
-│ --run-model           -rm       TEXT  Run mode: train or test [default: train]                                                           │
-│ --config-path         -cp       TEXT  config file path [default: config/config.toml]                                                     │
-│ --checkpoint-path     -ckp      TEXT  The checkpoint save path [default: data/10_checkpoint_test]                                             │
-│ --result-path         -rp       TEXT  The result save path [default: data/11_train_result]                                               │
-│ --trained-agent-path  -tap      TEXT  Only used in test mode, the path of trained agent [default: None. Can be changed to data/05_train_model_output OR data/06_train_checkpoint]                                  │
-│ --help                                Show this message and exit.                                                                        │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ Usage: run.py sim [OPTIONS]
+
+ Start Simulation
+
+ Options
+ --market-data-path    -mdp      TEXT  The environment data pickle path [default: data/06_input/subset_symbols.pkl]
+ --start-time          -st       TEXT  The training or test start time [default: 2022-06-30 For Ticker 'TSLA']
+ --end-time            -et       TEXT  The training or test end time [default: 2022-10-11]
+ --run-model           -rm       TEXT  Run mode: train or test [default: train]
+ --config-path         -cp       TEXT  config file path [default: config/config.toml]
+ --checkpoint-path     -ckp      TEXT  The checkpoint save path [default: data/10_checkpoint_test]
+ --result-path         -rp       TEXT  The result save path [default: data/11_train_result]
+ --trained-agent-path  -tap      TEXT  Only used in test mode, the path of trained agent [default: None. Can be changed to data/05_train_model_output OR data/06_train_checkpoint]
+ --help                                Show this message and exit.
+```
                               
 ```
 
 Notice our model has two modes: `train` and `test`. In the train mode, the information populate the agent's memory. In the test mode, the agent will use the information in the memory and new information to make decisions. When `test` mode is selected, the trained agent must be provided.
 
-When the program stopped due to exceptions(OpenAI API is not stable, etc.), the training/testing process can be resumed with
+When the program stopped due to exceptions (API instability, etc.), the training/testing process can be resumed with
 
 ```bash
                                                                                                                                             
- Usage: run.py sim-checkpoint [OPTIONS]                                                                                                     
-                                                                                                                                            
- Start Simulation from checkpoint                                                                                                           
-                                                                                                                                            
-╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --checkpoint-path  -cp      TEXT  The checkpoint path [default: data/06_train_checkpoint]                                                │
-│ --result-path      -rp      TEXT  The result save path [default: data/05_train_model_output]                                             │
-│ --config-path      -ckp      TEXT  config file path [default: config/tsla_config.toml]                                                    │
-│ --run-model        -rm      TEXT  Run mode: train or test [default: train]                                                               │
-│ --help                            Show this message and exit.                                                                            │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ Usage: run.py sim-checkpoint [OPTIONS]
+
+ Start Simulation from checkpoint
+
+ Options
+ --checkpoint-path  -cp      TEXT  The checkpoint path [default: data/06_train_checkpoint]
+ --result-path      -rp      TEXT  The result save path [default: data/05_train_model_output]
+ --config-path      -ckp      TEXT  config file path [default: config/tsla_config.toml]
+ --run-model        -rm      TEXT  Run mode: train or test [default: train]
+ --help                            Show this message and exit.
 ```
 ## Star History
 
