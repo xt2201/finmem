@@ -24,6 +24,7 @@ numpy = "^1.26.3"
 annotated-types = "^0.6.0"
 polars = "^0.20.5"
 langchain-community = "^0.0.15"
+langchain-cerebras = "*"
 torch = {version = "^2.2.0+cpu", source = "torch-cpu"}
 transformers = "^4.37.2"
 

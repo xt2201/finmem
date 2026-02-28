@@ -27,7 +27,7 @@ This suite of Python scripts provides a comprehensive toolkit for generating *Fi
 
 5. **Model Wrapper (`03-model_wrapper.py`):**
    - Rename to `model_wrapper.py` for use.
-   - Select between ChatGPT or TogetherAI models from the model factory.
+   - Select between Cerebras or TogetherAI models from the model factory.
 
 6. **News Summarization (`03-summary.py`):**
    - Summarize lengthy news data or 10k10q files.

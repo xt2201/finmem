@@ -34,7 +34,7 @@ class ChatOpenAICompatible(ABC):
         system_message: str = "You are a helpful assistant.",
         other_parameters: Union[Dict[str, Any], None] = None,
     ):
-        api_key = os.environ.get("OPENAI_API_KEY", "-")
+        api_key = os.environ.get("CEREBRAS_API_KEY", "-")
         self.end_point = end_point
         self.model = model
         self.system_message = system_message
@@ -120,17 +120,23 @@ class ChatOpenAICompatible(ABC):
                     self.end_point, headers=self.headers, json=payload, timeout=600.0  # type: ignore
                 )
             else:
-                payload = {
-                    "model": self.model,  # or another model like "gpt-4.0-turbo"
-                    "messages": input_str,
-                }
-                payload.update(self.other_parameters)
-                payload = json.dumps(payload)
-            
-            
-                response = httpx.post(
-                    self.end_point, headers=self.headers, data=payload, timeout=600.0  # type: ignore
-                )
+                from langchain_cerebras import ChatCerebras
+                from langchain_core.messages import SystemMessage, HumanMessage
+                cerebras_api_key = os.environ.get("CEREBRAS_API_KEY", "-")
+                chat = ChatCerebras(model=self.model, api_key=cerebras_api_key)
+                msgs = [
+                    SystemMessage(content=input_str[0]["content"]),
+                    HumanMessage(content=input_str[1]["content"])
+                ]
+                try:
+                    res = chat.invoke(msgs)
+                    return res.content
+                except Exception as e:
+                    if "context" in str(e).lower() or "length" in str(e).lower() or "too long" in str(e).lower():
+                        raise LongerThanContextError
+                    else:
+                        raise e
+
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
