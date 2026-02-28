@@ -166,3 +166,7 @@ awscliv2.zip
 weights/
 tgi_scripts/data/
 .env
+.venv
+__pycache__
+tests/outputs
+
