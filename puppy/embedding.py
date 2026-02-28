@@ -12,7 +12,7 @@ class HuggingFaceEmb:
     def __init__(
         self,
         hf_token: Union[str, None] = None,
-        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        embedding_model: str = "intfloat/multilingual-e5-large",
         chunk_size: int = 5000,
         verbose: bool = False,
         **kwargs
@@ -34,6 +34,8 @@ class HuggingFaceEmb:
 
     def get_embedding_dimension(self):
         match self.model_name:
+            case "intfloat/multilingual-e5-large":
+                return 1024
             case "sentence-transformers/all-MiniLM-L6-v2":
                 return 384
             case "BAAI/bge-m3":
