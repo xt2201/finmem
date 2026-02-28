@@ -78,7 +78,7 @@ class ChatOpenAICompatible(ABC):
             ]
             
             # Models to try in order: current model, then fallbacks
-            fallback_models = ["llama3.1-8b", "gpt-oss-120b", "zai-glm-4.7"]
+            fallback_models = ["gpt-oss-120b", "zai-glm-4.7"]
             models_to_try = [self.model]
             for m in fallback_models:
                 if m != self.model:
