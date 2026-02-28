@@ -73,38 +73,47 @@ class ChatOpenAICompatible(ABC):
     def guardrail_endpoint(self) -> Callable:
         def end_point(input: str, **kwargs) -> str:
             input_str = [
-                    # {"role": "system", "content": f"{self.system_message}"},
-                    {"role": "system", "content": "You are a helpful assistant only capable of communicating with valid JSON, and no other text."},
-                    {"role": "user", "content": f"{input}"},
-                ]
+                {"role": "system", "content": "You are a helpful assistant only capable of communicating with valid JSON, and no other text."},
+                {"role": "user", "content": f"{input}"},
+            ]
             
-            if self.model.startswith("gemini-pro"):
-                input_prompts = {"role": "USER",
-                                "parts": { "text": input_str[1]["content"]}
-                                    }
-                payload = {"contents": input_prompts,
-                            "generation_config": {
-                                                "temperature": 0.2,
-                                                "top_p": 0.1,
-                                                "top_k": 16,
-                                                "max_output_tokens": 2048,
-                                                "candidate_count": 1,
-                                                "stop_sequences": []
-                                                },
-                            "safety_settings": {
-                                                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                                "threshold": "BLOCK_LOW_AND_ABOVE"
-                                                }
-                        }
-                response = httpx.post(url = self.end_point, headers= self.headers, json=payload, timeout=600.0 )
-                
-            elif self.model.startswith("tgi"):
-                llama_input_str = build_llama2_prompt(input_str)
-                # print(llama_input_str)
-                
-                payload = {
-                "inputs": llama_input_str,
-                "parameters": {
+            # Models to try in order: current model, then fallbacks
+            fallback_models = ["llama3.1-8b", "gpt-oss-120b", "zai-glm-4.7"]
+            models_to_try = [self.model]
+            for m in fallback_models:
+                if m != self.model:
+                    models_to_try.append(m)
+            
+            last_error = None
+            for model_name in models_to_try:
+                try:
+                    if model_name.startswith("gemini-pro"):
+                        input_prompts = {"role": "USER",
+                                        "parts": { "text": input_str[1]["content"]}
+                                            }
+                        payload = {"contents": input_prompts,
+                                    "generation_config": {
+                                                        "temperature": 0.2,
+                                                        "top_p": 0.1,
+                                                        "top_k": 16,
+                                                        "max_output_tokens": 2048,
+                                                        "candidate_count": 1,
+                                                        "stop_sequences": []
+                                                        },
+                                    "safety_settings": {
+                                                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                                        "threshold": "BLOCK_LOW_AND_ABOVE"
+                                                        }
+                                }
+                        response = httpx.post(url = self.end_point, headers= self.headers, json=payload, timeout=600.0 )
+                        response.raise_for_status()
+                        return self.parse_response(response)
+                        
+                    elif model_name.startswith("tgi"):
+                        llama_input_str = build_llama2_prompt(input_str)
+                        payload = {
+                            "inputs": llama_input_str,
+                            "parameters": {
                                 "do_sample": True,
                                 "top_p": 0.6,
                                 "temperature": 0.8,
@@ -113,39 +122,38 @@ class ChatOpenAICompatible(ABC):
                                 "repetition_penalty": 1.03,
                                 "stop": ["</s>"]
                             }
-                            }
-
-                # payload = json.dumps(payload)
-                response = httpx.post(
-                    self.end_point, headers=self.headers, json=payload, timeout=600.0  # type: ignore
-                )
-            else:
-                from langchain_cerebras import ChatCerebras
-                from langchain_core.messages import SystemMessage, HumanMessage
-                cerebras_api_key = os.environ.get("CEREBRAS_API_KEY", "-")
-                chat = ChatCerebras(model=self.model, api_key=cerebras_api_key)
-                msgs = [
-                    SystemMessage(content=input_str[0]["content"]),
-                    HumanMessage(content=input_str[1]["content"])
-                ]
-                try:
-                    res = chat.invoke(msgs)
-                    return res.content
-                except Exception as e:
-                    if "context" in str(e).lower() or "length" in str(e).lower() or "too long" in str(e).lower():
-                        raise LongerThanContextError
+                        }
+                        response = httpx.post(
+                            self.end_point, headers=self.headers, json=payload, timeout=600.0
+                        )
+                        response.raise_for_status()
+                        return self.parse_response(response)
                     else:
-                        raise e
+                        from langchain_cerebras import ChatCerebras
+                        from langchain_core.messages import SystemMessage, HumanMessage
+                        cerebras_api_key = os.environ.get("CEREBRAS_API_KEY", "-")
+                        
+                        # Use model_name for the attempt
+                        chat = ChatCerebras(model=model_name, api_key=cerebras_api_key)
+                        msgs = [
+                            SystemMessage(content=input_str[0]["content"]),
+                            HumanMessage(content=input_str[1]["content"])
+                        ]
+                        res = chat.invoke(msgs)
+                        return res.content
 
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                if (response.status_code == 422) and ("must have less than" in response.text):
-                    raise LongerThanContextError
-                else:
-                    raise e
-
-            return self.parse_response(response)
+                except LongerThanContextError:
+                    # Don't retry on context length errors as it's likely a persistent issue for this input
+                    raise
+                except Exception as e:
+                    last_error = e
+                    # Continue to next fallback model
+                    continue
+            
+            # If all models failed
+            if last_error:
+                raise last_error
+            return "All models failed to provide a response."
 
         return end_point
 
