@@ -6,7 +6,11 @@ from pathlib import Path
 
 TESTS_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = TESTS_DIR / "outputs"
-VENV_PYTHON = str(TESTS_DIR.parent / ".venv" / "bin" / "python")
+import sys as _sys, platform as _platform
+if _platform.system() == "Windows":
+    VENV_PYTHON = str(TESTS_DIR.parent / ".venv" / "Scripts" / "python.exe")
+else:
+    VENV_PYTHON = str(TESTS_DIR.parent / ".venv" / "bin" / "python")
 
 test_files = sorted(TESTS_DIR.glob("test_*.py"))
 

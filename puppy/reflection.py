@@ -6,7 +6,7 @@ from datetime import date
 from .run_type import RunMode
 from pydantic import BaseModel, Field
 from httpx import HTTPStatusError
-from guardrails.validators import ValidChoices
+from .guardrails_compat import ValidChoices  # compat shim: replaces guardrails.validators.ValidChoices
 from typing import List, Callable, Dict, Union, Any, Tuple
 from .chat import LongerThanContextError
 from .prompts import (
@@ -441,10 +441,22 @@ def trading_reflection(
             not isinstance(validated_outcomes.validated_output, dict)
         ):
             logger.info(f"reflection failed for {symbol}")
+            # Safely extract error message from the validation outcome
+            try:
+                err_msg = (
+                    validated_outcomes.__dict__.get('reask', {}) or {}
+                )
+                if hasattr(err_msg, '__dict__'):
+                    fail_results = err_msg.__dict__.get('fail_results', [])
+                    err_msg = fail_results[0].__dict__.get('error_message', 'validation failed') if fail_results else 'validation failed'
+                else:
+                    err_msg = str(getattr(validated_outcomes, 'error', 'validation failed'))
+            except Exception:
+                err_msg = 'validation failed'
             if run_mode == RunMode.Train:
-                return {"summary_reason": validated_outcomes.__dict__['reask'].__dict__['fail_results'][0].__dict__['error_message'], "short_memory_index": None, "middle_memory_index": None, "long_memory_index": None, "reflection_memory_index": None}
+                return {"summary_reason": err_msg, "short_memory_index": None, "middle_memory_index": None, "long_memory_index": None, "reflection_memory_index": None}
             else:
-                return {"investment_decision" : "hold", "summary_reason": validated_outcomes.__dict__['reask'].__dict__['fail_results'][0].__dict__['error_message'], "short_memory_index": None, "middle_memory_index": None, "long_memory_index": None, "reflection_memory_index": None}
+                return {"investment_decision": "hold", "summary_reason": err_msg, "short_memory_index": None, "middle_memory_index": None, "long_memory_index": None, "reflection_memory_index": None}
         return _delete_placeholder_info(validated_outcomes.validated_output)
 
     except Exception as e:
