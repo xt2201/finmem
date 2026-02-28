@@ -107,9 +107,47 @@ This will execute tests for:
 
 Test results are stored JSON format in `tests/outputs/`.
 
-## Program
+### Data Preparation
 
-The program has two main functionalities:
+The repository provides a compressed file containing continuous historical data features. Before running a simulation, extract and format this dataset:
+
+```bash
+# Extract the sample data
+unzip -o data-pipeline/Fake-Sample-Data.zip -d data/06_input/
+
+# Run this quick python snippet to convert the tuple structure into the required dictionary format:
+python -c "
+import pickle
+d = pickle.load(open('data/06_input/Fake-Sample-Data/example_output/env_data.pkl', 'rb'))
+new_d = {k: {'price': v[0].get('price',{}), 'news': v[1].get('news',{}), 'filing_q': v[2].get('filing_q',{}), 'filing_k': v[3].get('filing_k',{})} for k, v in d.items()}
+pickle.dump(new_d, open('data/06_input/subset_symbols.pkl', 'wb'))
+"
+```
+
+## Program Usage
+
+The program uses two modes: `train` and `test`. 
+- **Train mode**: Streams information over time to populate the agent's memory index without generating trades.
+- **Test mode**: The agent queries its existing memory databases against new daily information to make actual trading choices.
+
+### Example: Running a Practical Simulation
+
+Ensure OpenMP library duplication is allowed for Huggingface tokenizers prior to running:
+```bash
+export KMP_DUPLICATE_LIB_OK="TRUE"
+```
+
+1. **Populate Memory (Train Mode)** spanning Jan 13 -> Jan 15:
+```bash
+python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-13 -et 2016-01-15 -rm train -cp config/tsla_cerebras_config.toml
+```
+
+2. **Generate Trades (Test Mode)** for Jan 19 -> Jan 20 utilizing the previously generated checkpoints:
+```bash
+python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-19 -et 2016-01-20 -rm test -cp config/tsla_cerebras_config.toml -tap data/05_train_model_output
+```
+
+### Advanced Usage Information
 
 ```bash
  Usage: run.py sim [OPTIONS]
@@ -124,18 +162,13 @@ The program has two main functionalities:
  --config-path         -cp       TEXT  config file path [default: config/config.toml]
  --checkpoint-path     -ckp      TEXT  The checkpoint save path [default: data/10_checkpoint_test]
  --result-path         -rp       TEXT  The result save path [default: data/11_train_result]
- --trained-agent-path  -tap      TEXT  Only used in test mode, the path of trained agent [default: None. Can be changed to data/05_train_model_output OR data/06_train_checkpoint]
+ --trained-agent-path  -tap      TEXT  Only used in test mode, the path of trained agent [default: None]
  --help                                Show this message and exit.
 ```
-                              
-```
 
-Notice our model has two modes: `train` and `test`. In the train mode, the information populate the agent's memory. In the test mode, the agent will use the information in the memory and new information to make decisions. When `test` mode is selected, the trained agent must be provided.
-
-When the program stopped due to exceptions (API instability, etc.), the training/testing process can be resumed with
+If the API disconnects or rate-limits, the training process can be resumed securely from checkpoints:
 
 ```bash
-                                                                                                                                            
  Usage: run.py sim-checkpoint [OPTIONS]
 
  Start Simulation from checkpoint
@@ -143,7 +176,7 @@ When the program stopped due to exceptions (API instability, etc.), the training
  Options
  --checkpoint-path  -cp      TEXT  The checkpoint path [default: data/06_train_checkpoint]
  --result-path      -rp      TEXT  The result save path [default: data/05_train_model_output]
- --config-path      -ckp      TEXT  config file path [default: config/tsla_config.toml]
+ --config-path      -ckp     TEXT  config file path [default: config/tsla_config.toml]
  --run-model        -rm      TEXT  Run mode: train or test [default: train]
  --help                            Show this message and exit.
 ```
