@@ -10,8 +10,7 @@ import logging
 from typing import List, Any, Dict, Optional, Callable, Type, Union
 
 import guardrails as gd
-from guardrails.validator_base import Validator
-from guardrails.classes.validation.validation_result import PassResult, FailResult
+from guardrails.validator_base import Validator, PassResult, FailResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +24,21 @@ class ValidChoices(Validator):
     """Validates that a value is one of the allowed choices (guardrails 0.3.x API)."""
 
     def __init__(self, choices=None, on_fail="exception", **kwargs):
-        super().__init__(on_fail=on_fail, **kwargs)
-        self._choices = list(choices) if choices is not None else []
+        super().__init__(on_fail=on_fail, choices=choices, **kwargs)
+        if isinstance(choices, str):
+            import ast
+            try:
+                choices = ast.literal_eval(choices)
+            except Exception:
+                pass
+        self.choices = list(choices) if choices is not None else []
 
     def validate(self, value: Any, metadata: Dict) -> Any:
-        if value in self._choices:
+        if value in self.choices:
             return PassResult()
         return FailResult(
             error_message=(
-                f"Value {value!r} is not in the allowed choices: {self._choices}"
+                f"Value {value!r} is not in the allowed choices: {self.choices}"
             )
         )
 

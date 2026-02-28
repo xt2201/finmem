@@ -177,7 +177,7 @@ class LLMAgent(Agent):
             )
 
     def _handling_news(self, cur_date: date, news: List[str]) -> None:
-        if news != {}:
+        if news:
             self.brain.add_memory_short(
                 symbol=self.trading_symbol, date=cur_date, text=news
             )
