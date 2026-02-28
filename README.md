@@ -72,56 +72,18 @@ CEREBRAS_API_KEY = "<Your Cerebras API Key>"
 HF_TOKEN = "<Your HF token>"
 ```
 
-### Setup with uv
+### Quick Setup
 
-The recommended way to set up the environment is using [uv](https://github.com/astral-sh/uv).
+The recommended way to set up the environment and extract historical data is using the provided setup script. This script requires [uv](https://github.com/astral-sh/uv).
 
-1. Create a virtual environment:
+Run the following command to automatically create a virtual environment, install dependencies, and format the compressed sample dataset for the simulation:
 ```bash
-uv venv .venv --python 3.10
-source .venv/bin/activate
+bash setup.sh
 ```
 
-2. Install dependencies:
-```bash
-uv pip install -r pyproject.toml
-```
-
-### Running Tests
-
-A comprehensive test suite is available in the `tests/` directory.
-
-To run all tests and see a summary:
+Once the setup is complete, you can enter the environment using:
 ```bash
 source .venv/bin/activate
-python tests/run_all_tests.py
-```
-
-This will execute tests for:
-- HuggingFace Embedding integration
-- Cerebras LLM Chat functionality
-- Memory scoring and decay functions
-- MemoryDB and BrainDB operations
-- Portfolio tracking and feedback
-- Market Environment simulation loop
-
-Test results are stored JSON format in `tests/outputs/`.
-
-### Data Preparation
-
-The repository provides a compressed file containing continuous historical data features. Before running a simulation, extract and format this dataset:
-
-```bash
-# Extract the sample data
-unzip -o data-pipeline/Fake-Sample-Data.zip -d data/06_input/
-
-# Run this quick python snippet to convert the tuple structure into the required dictionary format:
-python -c "
-import pickle
-d = pickle.load(open('data/06_input/Fake-Sample-Data/example_output/env_data.pkl', 'rb'))
-new_d = {k: {'price': v[0].get('price',{}), 'news': v[1].get('news',{}), 'filing_q': v[2].get('filing_q',{}), 'filing_k': v[3].get('filing_k',{})} for k, v in d.items()}
-pickle.dump(new_d, open('data/06_input/subset_symbols.pkl', 'wb'))
-"
 ```
 
 ## Program Usage
