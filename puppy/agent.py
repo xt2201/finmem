@@ -61,7 +61,7 @@ class TextTruncator:
     # for single text case
     def truncate_text(self, input_text, max_tokens):
         # Tokenize the text
-        encoded_input, num_tokens = self.tokenize_cnt_texts(input_text)
+        encoded_input, num_tokens = self._tokenize_cnt_texts(input_text)
 
         if len(encoded_input["input_ids"]) <= max_tokens:
             return input_text, len(encoded_input["input_ids"])
@@ -354,7 +354,7 @@ class LLMAgent(Agent):
         run_mode: RunMode,
         cur_record: Union[float, None] = None,
     ) -> Dict[str, Any]:
-        if (run_mode == RunMode.Train) and (not cur_record):
+        if (run_mode == RunMode.Train) and (cur_record is None):
             self.logger.info("No record\n")
             return {}
         # reflection
@@ -458,7 +458,12 @@ class LLMAgent(Agent):
                 self.logger.info("no decision")
 
     def _construct_train_actions(self, cur_record: float) -> Dict[str, int]:
-        cur_direction = 1 if cur_record > 0 else -1
+        if cur_record > 0:
+            cur_direction = 1
+        elif cur_record < 0:
+            cur_direction = -1
+        else:
+            cur_direction = 0
         return {"direction": cur_direction, "quantity": 1}
 
     def _portfolio_step(self, cur_action: Dict[str, int]) -> None:

@@ -49,5 +49,5 @@ test_prompt = """ Given the information, can you make an investment decision? Ju
 
     ${investment_info}
 
-    ${gr.complete_json_suffix_v2} }
+    ${gr.complete_json_suffix_v2}
 """

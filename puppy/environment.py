@@ -82,7 +82,7 @@ class MarketEnvironment:
         if self.env_data[self.cur_date]["news"] != {}:
             cur_news = self.env_data[self.cur_date]["news"]
         else:
-            cur_news = {self.symbol: ''}
+            cur_news = {self.symbol: []}
             
         cur_record = {
             symbol: future_price[symbol] - cur_price[symbol]  # type: ignore
@@ -101,11 +101,11 @@ class MarketEnvironment:
 
         return (
             cur_date,
-            cur_price[self.symbol],
+            float(cur_price[self.symbol]),
             cur_filing_k,
             cur_filing_q,
             cur_news[self.symbol],
-            cur_record[self.symbol],
+            float(cur_record[self.symbol]),
             False,
         )
 
@@ -126,6 +126,6 @@ class MarketEnvironment:
             raise FileNotFoundError(f"Path {path} does not exists")
         with open(os.path.join(path, "env.pkl"), "rb") as f:
             env = pickle.load(f)
-        # update
-        env.simulation_length = len(env.date_series)
+        # update: remaining steps = remaining dates - 1 (last date triggers done)
+        env.simulation_length = max(0, len(env.date_series) - 1)
         return env
