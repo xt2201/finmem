@@ -1,6 +1,7 @@
 import os
 import httpx
 import json
+import time
 import subprocess
 from abc import ABC
 from typing import Callable, Union, Dict, Any, Union
@@ -70,6 +71,16 @@ class ChatOpenAICompatible(ABC):
         else:
             raise NotImplementedError(f"Model {self.model} not implemented")
 
+    @staticmethod
+    def _is_rate_limit_error(err: Exception) -> bool:
+        err_text = str(err).lower()
+        return (
+            "429" in err_text
+            or "rate limit" in err_text
+            or "too_many_tokens_error" in err_text
+            or "token_quota_exceeded" in err_text
+        )
+
     def guardrail_endpoint(self) -> Callable:
         def end_point(input: str, **kwargs) -> str:
             input_str = [
@@ -83,72 +94,85 @@ class ChatOpenAICompatible(ABC):
             for m in fallback_models:
                 if m != self.model:
                     models_to_try.append(m)
+
+            retry_max_attempts = int(os.environ.get("FINMEM_LLM_RETRY_MAX_ATTEMPTS", "5"))
+            retry_base_wait_seconds = int(os.environ.get("FINMEM_LLM_RETRY_BASE_WAIT_SECONDS", "8"))
+            retry_max_wait_seconds = int(os.environ.get("FINMEM_LLM_RETRY_MAX_WAIT_SECONDS", "120"))
             
             last_error = None
             for model_name in models_to_try:
-                try:
-                    if model_name.startswith("gemini-pro"):
-                        input_prompts = {"role": "USER",
-                                        "parts": { "text": input_str[1]["content"]}
-                                            }
-                        payload = {"contents": input_prompts,
-                                    "generation_config": {
-                                                        "temperature": 0.2,
-                                                        "top_p": 0.1,
-                                                        "top_k": 16,
-                                                        "max_output_tokens": 2048,
-                                                        "candidate_count": 1,
-                                                        "stop_sequences": []
-                                                        },
-                                    "safety_settings": {
-                                                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                                                        "threshold": "BLOCK_LOW_AND_ABOVE"
-                                                        }
-                                }
-                        response = httpx.post(url = self.end_point, headers= self.headers, json=payload, timeout=600.0 )
-                        response.raise_for_status()
-                        return self.parse_response(response)
-                        
-                    elif model_name.startswith("tgi"):
-                        llama_input_str = build_llama2_prompt(input_str)
-                        payload = {
-                            "inputs": llama_input_str,
-                            "parameters": {
-                                "do_sample": True,
-                                "top_p": 0.6,
-                                "temperature": 0.8,
-                                "top_k": 50,
-                                "max_new_tokens": 256,
-                                "repetition_penalty": 1.03,
-                                "stop": ["</s>"]
-                            }
-                        }
-                        response = httpx.post(
-                            self.end_point, headers=self.headers, json=payload, timeout=600.0
-                        )
-                        response.raise_for_status()
-                        return self.parse_response(response)
-                    else:
-                        from langchain_cerebras import ChatCerebras
-                        from langchain_core.messages import SystemMessage, HumanMessage
-                        cerebras_api_key = os.environ.get("CEREBRAS_API_KEY", "-")
-                        
-                        # Use model_name for the attempt
-                        chat = ChatCerebras(model=model_name, api_key=cerebras_api_key)
-                        msgs = [
-                            SystemMessage(content=input_str[0]["content"]),
-                            HumanMessage(content=input_str[1]["content"])
-                        ]
-                        res = chat.invoke(msgs)
-                        return res.content
+                attempt = 0
+                while attempt < retry_max_attempts:
+                    try:
+                        if model_name.startswith("gemini-pro"):
+                            input_prompts = {"role": "USER",
+                                            "parts": { "text": input_str[1]["content"]}
+                                                }
+                            payload = {"contents": input_prompts,
+                                        "generation_config": {
+                                                            "temperature": 0.2,
+                                                            "top_p": 0.1,
+                                                            "top_k": 16,
+                                                            "max_output_tokens": 2048,
+                                                            "candidate_count": 1,
+                                                            "stop_sequences": []
+                                                            },
+                                        "safety_settings": {
+                                                            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                                            "threshold": "BLOCK_LOW_AND_ABOVE"
+                                                            }
+                                    }
+                            response = httpx.post(url = self.end_point, headers= self.headers, json=payload, timeout=600.0 )
+                            response.raise_for_status()
+                            return self.parse_response(response)
 
-                except LongerThanContextError:
-                    # Don't retry on context length errors as it's likely a persistent issue for this input
-                    raise
-                except Exception as e:
-                    last_error = e
-                    # Continue to next fallback model
-                    continue
+                        elif model_name.startswith("tgi"):
+                            llama_input_str = build_llama2_prompt(input_str)
+                            payload = {
+                                "inputs": llama_input_str,
+                                "parameters": {
+                                    "do_sample": True,
+                                    "top_p": 0.6,
+                                    "temperature": 0.8,
+                                    "top_k": 50,
+                                    "max_new_tokens": 256,
+                                    "repetition_penalty": 1.03,
+                                    "stop": ["</s>"]
+                                }
+                            }
+                            response = httpx.post(
+                                self.end_point, headers=self.headers, json=payload, timeout=600.0
+                            )
+                            response.raise_for_status()
+                            return self.parse_response(response)
+                        else:
+                            from langchain_cerebras import ChatCerebras
+                            from langchain_core.messages import SystemMessage, HumanMessage
+                            cerebras_api_key = os.environ.get("CEREBRAS_API_KEY", "-")
+
+                            # Use model_name for the attempt
+                            chat = ChatCerebras(model=model_name, api_key=cerebras_api_key)
+                            msgs = [
+                                SystemMessage(content=input_str[0]["content"]),
+                                HumanMessage(content=input_str[1]["content"])
+                            ]
+                            res = chat.invoke(msgs)
+                            return res.content
+
+                    except LongerThanContextError:
+                        # Don't retry on context length errors as it's likely a persistent issue for this input
+                        raise
+                    except Exception as e:
+                        last_error = e
+                        attempt += 1
+                        if self._is_rate_limit_error(e) and attempt < retry_max_attempts:
+                            wait_seconds = min(
+                                retry_base_wait_seconds * (2 ** (attempt - 1)),
+                                retry_max_wait_seconds,
+                            )
+                            time.sleep(wait_seconds)
+                            continue
+                        break
             
             # If all models failed
             if last_error:

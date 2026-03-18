@@ -25,6 +25,8 @@ if [ ! -f "$MARKET_DATA_PATH" ]; then
   exit 1
 fi
 
+mkdir -p "$TRAIN_CHECKPOINT" "$TRAIN_OUTPUT" "$TEST_CHECKPOINT" "$TEST_OUTPUT" data/04_model_output_log
+
 "$PYTHON_BIN" run.py sim \
   -mdp "$MARKET_DATA_PATH" \
   -st 2021-08-17 \
