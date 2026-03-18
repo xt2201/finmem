@@ -70,6 +70,11 @@ Create a `.env` file in the root directory:
 ```bash
 CEREBRAS_API_KEY = "<Your Cerebras API Key>"
 HF_TOKEN = "<Your HF token>"
+SEC_KEY = "<Your SEC API key>"
+ALPACA_API_KEY = "<Your Alpaca API key>"
+ALPACA_API_SECRET_KEY = "<Your Alpaca API secret key>"
+ALPACA_ENDPOINT = "https://paper-api.alpaca.markets/v2"
+ALPACA_NEWS_ENDPOINT = "https://data.alpaca.markets/v1beta1/news"
 ```
 
 ### Quick Setup
