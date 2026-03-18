@@ -1,6 +1,5 @@
 # Arguments
-END_POINT_TEMPLATE = "https://data.alpaca.markets/v1beta1/news?start={start_date}&end={end_date}&limit=50&symbols={symbol}"
-END_POINT_TEMPLATE_LINK_PAGE = "https://data.alpaca.markets/v1beta1/news?limit=50&symbol={symbol}&page_token={page_token}"
+DEFAULT_NEWS_ENDPOINT = "https://data.alpaca.markets/v1beta1/news"
 NUM_NEWS_PER_RECORD = 200
 MAX_ATTEMPTS = 5
 WAIT_TIME = 60
@@ -22,6 +21,25 @@ from typing import List, Dict, Tuple, Union
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 load_dotenv()
+
+
+def _get_alpaca_news_endpoint() -> str:
+    return os.environ.get("ALPACA_NEWS_ENDPOINT", DEFAULT_NEWS_ENDPOINT).rstrip("/")
+
+
+def _get_alpaca_headers() -> Dict[str, str]:
+    api_key = os.environ.get("ALPACA_API_KEY") or os.environ.get("ALPACA_KEY")
+    api_secret = os.environ.get("ALPACA_API_SECRET_KEY") or os.environ.get(
+        "ALPACA_KEY_SECRET_KEY"
+    )
+    if not api_key or not api_secret:
+        raise ValueError(
+            "Missing Alpaca credentials. Set ALPACA_API_KEY and ALPACA_API_SECRET_KEY in .env"
+        )
+    return {
+        "Apca-Api-Key-Id": api_key,
+        "Apca-Api-Secret-Key": api_secret,
+    }
 
 
 def round_to_next_day(date: pl.Expr) -> pl.Expr:
@@ -99,20 +117,14 @@ class ParseRecordContainer:
 def query_one_record(args: Tuple[date, str]) -> None:
     date, symbol = args
     next_date = date + timedelta(days=1)
-    request_header = {
-        "Apca-Api-Key-Id": os.environ.get("ALPACA_KEY"),
-        "Apca-Api-Secret-Key": os.environ.get("ALPACA_KEY_SECRET_KEY"),
-    }
+    request_header = _get_alpaca_headers()
+    news_endpoint = _get_alpaca_news_endpoint()
     container = ParseRecordContainer(symbol)
 
     with httpx.Client() as client:
         # first request
         response = client.get(
-            END_POINT_TEMPLATE.format(
-                start_date=date.strftime("%Y-%m-%d"),
-                end_date=next_date.strftime("%Y-%m-%d"),
-                symbol=symbol,
-            ),
+            f"{news_endpoint}?start={date.strftime('%Y-%m-%d')}&end={next_date.strftime('%Y-%m-%d')}&limit=50&symbols={symbol}",
             headers=request_header,
         )
         if response.status_code != 200:
@@ -125,9 +137,7 @@ def query_one_record(args: Tuple[date, str]) -> None:
         while next_page_token:
             try:
                 response = client.get(
-                    END_POINT_TEMPLATE_LINK_PAGE.format(
-                        symbol=symbol, page_token=next_page_token
-                    ),
+                    f"{news_endpoint}?limit=50&symbol={symbol}&page_token={next_page_token}",
                     headers=request_header,
                 )
                 if response.status_code != 200:
