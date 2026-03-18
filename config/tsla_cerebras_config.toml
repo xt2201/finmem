@@ -5,7 +5,7 @@ system_message = "You are a helpful assistant."
 
 
 [general]
-top_k = 3
+top_k = 5
 agent_name = "agent_1"
 look_back_window_size = 7
 trading_symbol = "TSLA"
