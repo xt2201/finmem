@@ -4,6 +4,7 @@
 # You may need a VPN to connect to Yahoo Finance
 
 import glob
+import os
 import pickle
 import datetime
 import pandas as pd
@@ -147,8 +148,16 @@ if __name__ == '__main__':
     filled_q = dict(sorted(q.items()))
     filled_k = dict(sorted(k.items()))
 
-    # Combining data
-    env_data = {key: (price[key], news[key], filled_q[key], filled_k[key]) for key in price.keys()}
+    # Combining data in runtime-compatible structure.
+    env_data = {
+        key: {
+            "price": price[key]["price"],
+            "news": news[key]["news"],
+            "filing_q": filled_q[key]["filing_q"],
+            "filing_k": filled_k[key]["filing_k"],
+        }
+        for key in price.keys()
+    }
 
     # Save the combined data
     output_path = f'{base_path}/env_data.pkl'

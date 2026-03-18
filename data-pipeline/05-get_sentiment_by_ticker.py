@@ -8,6 +8,22 @@ import pandas as pd
 import numpy as np
 
 
+def _extract_record_fields(record):
+    if isinstance(record, dict):
+        cur_price = record.get("price", {})
+        cur_news = record.get("news", {})
+        cur_filing_q = record.get("filing_q", record.get("filling_q", {}))
+        cur_filing_k = record.get("filing_k", record.get("filling_k", {}))
+        return cur_price, cur_news, cur_filing_q, cur_filing_k
+    if isinstance(record, tuple) and len(record) >= 4:
+        cur_price = record[0].get("price", {})
+        cur_news = record[1].get("news", {})
+        cur_filing_q = record[2].get("filing_q", record[2].get("filling_q", {}))
+        cur_filing_k = record[3].get("filing_k", record[3].get("filling_k", {}))
+        return cur_price, cur_news, cur_filing_q, cur_filing_k
+    return {}, {}, {}, {}
+
+
 def subset_symbol_dict(input_dir, cur_symbol):
     new_dict = {}
     with open(input_dir, "rb") as f:
@@ -23,10 +39,7 @@ def subset_symbol_dict(input_dir, cur_symbol):
     new_dict = {}
     ticker_dict_byDate = {}
     for k, v in tqdm(data.items()):
-        cur_price = v[0]['price']  # price
-        cur_news = v[1]['news']   # news
-        cur_filing_q = v[2]['filling_q']  # form q
-        cur_filing_k = v[3]['filling_k']  # form k
+        cur_price, cur_news, cur_filing_q, cur_filing_k = _extract_record_fields(v)
         # print('Date: ---------', k)
         # print('Available tickers: ---------',cur_news.keys())
 
@@ -34,8 +47,9 @@ def subset_symbol_dict(input_dir, cur_symbol):
         new_filing_k = {}
         new_filing_q = {}
         new_news = {}
-        if cur_symbol in list(cur_price.keys()):
-            new_price[cur_symbol] = cur_price[cur_symbol]
+        if cur_symbol not in list(cur_price.keys()):
+            continue
+        new_price[cur_symbol] = cur_price[cur_symbol]
         if cur_symbol in list(cur_filing_k.keys()):
             new_filing_k[cur_symbol] = cur_filing_k[cur_symbol]
         if cur_symbol in list(cur_filing_q.keys()):
@@ -43,7 +57,7 @@ def subset_symbol_dict(input_dir, cur_symbol):
         if cur_symbol in list(cur_news.keys()):
             new_news[cur_symbol] = cur_news[cur_symbol]
         else:
-            continue
+            new_news[cur_symbol] = []
 
         new_dict[k] = {
             "price": new_price,
