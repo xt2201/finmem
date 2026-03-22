@@ -186,3 +186,10 @@ data/09_results/
 *.pdf
 *.pkl
 
+
+data/10_short_eval/
+data/04_model_output_log/
+
+# Explicitly track essential model input files
+!data/03_model_input/tsla.pkl
+!data/06_input/subset_symbols.pkl

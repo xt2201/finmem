@@ -65,16 +65,16 @@ finmem
 
 The project uses Cerebras for LLM generation and HuggingFace for embeddings (defaulting to `intfloat/multilingual-e5-large`).
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the root directory and ensure all API keys below are provided:
 
 ```bash
-CEREBRAS_API_KEY = "<Your Cerebras API Key>"
-HF_TOKEN = "<Your HF token>"
-SEC_KEY = "<Your SEC API key>"
-ALPACA_API_KEY = "<Your Alpaca API key>"
-ALPACA_API_SECRET_KEY = "<Your Alpaca API secret key>"
-ALPACA_ENDPOINT = "https://paper-api.alpaca.markets/v2"
-ALPACA_NEWS_ENDPOINT = "https://data.alpaca.markets/v1beta1/news"
+CEREBRAS_API_KEY="<Your Cerebras API Key>"
+HF_TOKEN="<Your HF token>"
+SEC_KEY="<Your SEC API key (from sec-api.io)>"
+ALPACA_API_KEY="<Your Alpaca API key>"
+ALPACA_API_SECRET_KEY="<Your Alpaca API secret key>"
+ALPACA_ENDPOINT="https://paper-api.alpaca.markets/v2"
+ALPACA_NEWS_ENDPOINT="https://data.alpaca.markets/v1beta1/news"
 ```
 
 ### Quick Setup
@@ -89,6 +89,35 @@ bash setup.sh
 Once the setup is complete, you can enter the environment using:
 ```bash
 source .venv/bin/activate
+```
+
+### Running the Paper Evaluation Pipeline (TSLA)
+
+To completely replicate the conditions found in the FinMem paper for the Tesla (TSLA) evaluation spanning mid-2021 to mid-2023, you can use our built-in customized data pipeline and evaluation script.
+
+**Note:** The compiled dataset `data/03_model_input/tsla.pkl` is already included in this repository. You can skip Step 1 and run the simulation immediately (Step 2) without needing external API keys for data downloading!
+
+1. **(Optional) Build the Realistic Dataset:** Fetch real-time data from `yfinance`, download news coverage securely from `Alpaca`, and pull standard `10-K` / `10-Q` company filings using the SEC API. Ensure your `.env` contains the keys listed above.
+
+```bash
+python data-pipeline/09_build_paper_tsla_input.py
+```
+*(This generates a compiled dictionary of standard memory inputs securely stored in `data/03_model_input/tsla.pkl`.)*
+
+2. **Run the Full Paper Simulation Timeline:** Train memory representations from `2021-08-17` to `2022-10-05` and perform test trades acting on that memory from `2022-10-06` to `2023-04-10`. 
+
+```bash
+bash run_paper_eval.sh
+```
+
+*(Note that `run_paper_eval.sh` already establishes MacOS stability flags like `KMP_DUPLICATE_LIB_OK="TRUE"` and `OMP_NUM_THREADS="1"` for smooth execution.)*
+
+3. **Evaluate and Visualize Results:**
+After the test is completed, calculate financial metrics (Sharpe Ratio, Cumulative Return, MDD) and visualize performance against baseline strategies (Buy & Hold):
+
+```bash
+python data-pipeline/07-metrics.py
+python data-pipeline/06-Visualize-results.py
 ```
 
 ## Program Usage
