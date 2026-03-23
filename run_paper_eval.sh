@@ -11,9 +11,23 @@ TRAIN_CHECKPOINT="${TRAIN_CHECKPOINT:-data/06_train_checkpoint}"
 TRAIN_OUTPUT="${TRAIN_OUTPUT:-data/05_train_model_output}"
 TEST_CHECKPOINT="${TEST_CHECKPOINT:-data/08_test_checkpoint}"
 TEST_OUTPUT="${TEST_OUTPUT:-data/09_results}"
-PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
+PYTHON_BIN="${PYTHON_BIN:-}"
 export KMP_DUPLICATE_LIB_OK="${KMP_DUPLICATE_LIB_OK:-TRUE}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+export PYTHONFAULTHANDLER="${PYTHONFAULTHANDLER:-1}"
+
+if [ -z "$PYTHON_BIN" ]; then
+  if [ -x "../.venv/Scripts/python.exe" ]; then
+    PYTHON_BIN="../.venv/Scripts/python.exe"
+  elif [ -x ".venv/Scripts/python.exe" ]; then
+    PYTHON_BIN=".venv/Scripts/python.exe"
+  elif [ -x ".venv/bin/python" ]; then
+    PYTHON_BIN=".venv/bin/python"
+  else
+    PYTHON_BIN="python"
+  fi
+fi
 
 if [ ! -x "$PYTHON_BIN" ]; then
   PYTHON_BIN="python"

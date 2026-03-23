@@ -1,14 +1,12 @@
 import os
 import numpy as np
 from typing import List, Union
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 
 class HuggingFaceEmb:
     """
-    Embedding function using HuggingFace Inference API (router.huggingface.co).
-    Uses langchain_huggingface.HuggingFaceEndpointEmbeddings which targets
-    the current HF Inference API router endpoint.
+    Embedding function using local HuggingFaceEmbeddings instead of API.
     """
 
     def __init__(
@@ -20,9 +18,8 @@ class HuggingFaceEmb:
         **kwargs
     ) -> None:
         self.hf_token = hf_token or os.environ.get("HF_TOKEN")
-        self.emb_model = HuggingFaceEndpointEmbeddings(
-            model=embedding_model,
-            huggingfacehub_api_token=self.hf_token,
+        self.emb_model = HuggingFaceEmbeddings(
+            model_name=embedding_model,
         )
         self.model_name = embedding_model
 
