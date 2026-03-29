@@ -120,6 +120,20 @@ python data-pipeline/07-metrics.py
 python data-pipeline/06-Visualize-results.py
 ```
 
+### Optional: Use a Custom OpenAI-Compatible Endpoint (ngrok/vLLM)
+
+If you want to run FinMem against a self-hosted OpenAI-compatible server (for example a vLLM endpoint exposed by ngrok), use the provided config:
+
+```bash
+python run.py sim -mdp data/03_model_input/tsla.pkl -st 2021-08-17 -et 2022-10-05 -rm train -cp config/tsla_openai_compatible_config.toml
+```
+
+Notes:
+- Set `[chat].end_point` to your server base URL (for example `https://.../v1`) or full chat endpoint (`https://.../v1/chat/completions`).
+- Set `[chat].model` to your hosted model ID.
+- Set `[chat].openai_compatible = true`.
+- Use `[chat].api_key = "EMPTY"` if your server does not require a real key.
+
 ## Program Usage
 
 The program uses two modes: `train` and `test`. 

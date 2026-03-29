@@ -4,7 +4,7 @@ import json
 import time
 import subprocess
 from abc import ABC
-from typing import Callable, Union, Dict, Any, Union
+from typing import Callable, Union, Dict, Any
 
 ### when use tgi model
 api_key = '-' 
@@ -27,6 +27,20 @@ def build_llama2_prompt(messages):
 class LongerThanContextError(Exception):
     pass
 
+
+def _extract_json_candidate(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return cleaned[start : end + 1]
+    return text
+
 class ChatOpenAICompatible(ABC):
     def __init__(
         self,
@@ -39,6 +53,13 @@ class ChatOpenAICompatible(ABC):
         self.end_point = end_point
         self.model = model
         self.system_message = system_message
+        self.other_parameters = {} if other_parameters is None else other_parameters
+        self.openai_compatible = bool(
+            self.other_parameters.get("openai_compatible", False)
+        )
+        self.api_key = str(self.other_parameters.get("api_key", api_key))
+        if self.openai_compatible and self.end_point.rstrip("/").endswith("/v1"):
+            self.end_point = f"{self.end_point.rstrip('/')}/chat/completions"
         
         
         if self.model.startswith("gemini-pro"):
@@ -53,15 +74,19 @@ class ChatOpenAICompatible(ABC):
                     }   
         else:
             self.headers = {
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            self.other_parameters = {} if other_parameters is None else other_parameters
 
     def parse_response(self, response: httpx.Response) -> str:
-        if self.model.startswith("gpt"):
+        if self.openai_compatible or self.model.startswith("gpt"):
             response_out = response.json()
-            return response_out["choices"][0]["message"]["content"]
+            content = response_out["choices"][0]["message"].get("content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "") for part in content if isinstance(part, dict)
+                )
+            return _extract_json_candidate(str(content))
         elif self.model.startswith("gemini-pro"):
             response_out = response.json()
             return response_out["candidates"][0]["content"]["parts"][0]["text"]
@@ -84,16 +109,23 @@ class ChatOpenAICompatible(ABC):
     def guardrail_endpoint(self) -> Callable:
         def end_point(input: str, **kwargs) -> str:
             input_str = [
-                {"role": "system", "content": "You are a helpful assistant only capable of communicating with valid JSON, and no other text."},
+                {
+                    "role": "system",
+                    "content": f"{self.system_message}\nYou are only capable of communicating with valid JSON, and no other text.",
+                },
                 {"role": "user", "content": f"{input}"},
             ]
             
-            # Models to try in order: current model, then fallbacks
-            fallback_models = ["llama3.1-8b", "gpt-oss-120b", "qwen-3-235b-a22b-instruct-2507", "zai-glm-4.7"]
-            models_to_try = [self.model]
-            for m in fallback_models:
-                if m != self.model:
-                    models_to_try.append(m)
+            # For custom OpenAI-compatible endpoints, use the configured model only.
+            # For default Cerebras flow, keep fallback models for resilience.
+            if self.openai_compatible:
+                models_to_try = [self.model]
+            else:
+                fallback_models = ["llama3.1-8b", "gpt-oss-120b", "qwen-3-235b-a22b-instruct-2507", "zai-glm-4.7"]
+                models_to_try = [self.model]
+                for m in fallback_models:
+                    if m != self.model:
+                        models_to_try.append(m)
 
             retry_max_attempts = int(os.environ.get("FINMEM_LLM_RETRY_MAX_ATTEMPTS", "5"))
             retry_base_wait_seconds = int(os.environ.get("FINMEM_LLM_RETRY_BASE_WAIT_SECONDS", "8"))
@@ -142,6 +174,25 @@ class ChatOpenAICompatible(ABC):
                             }
                             response = httpx.post(
                                 self.end_point, headers=self.headers, json=payload, timeout=600.0
+                            )
+                            response.raise_for_status()
+                            return self.parse_response(response)
+                        elif self.openai_compatible:
+                            payload = {
+                                "model": model_name,
+                                "messages": input_str,
+                                "temperature": self.other_parameters.get("temperature", 0.2),
+                                "response_format": {"type": "json_object"},
+                            }
+                            if "max_tokens" in self.other_parameters:
+                                payload["max_tokens"] = self.other_parameters["max_tokens"]
+                            if "top_p" in self.other_parameters:
+                                payload["top_p"] = self.other_parameters["top_p"]
+                            response = httpx.post(
+                                self.end_point,
+                                headers=self.headers,
+                                json=payload,
+                                timeout=600.0,
                             )
                             response.raise_for_status()
                             return self.parse_response(response)
