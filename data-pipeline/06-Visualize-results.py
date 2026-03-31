@@ -96,17 +96,22 @@ def main(ticker, start_time, end_time, state_dict_path, image_save_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize cumulative return for FinMem test run")
-    parser.add_argument("--ticker", default="TSLA")
-    parser.add_argument("--start", default="2022-10-06")
-    parser.add_argument("--end", default="2023-04-10")
+    parser.add_argument("--ticker", default=os.environ.get("FINMEM_TRADING_SYMBOL", "TSLA"))
+    parser.add_argument("--start", default=os.environ.get("FINMEM_EVAL_START", "2022-10-06"))
+    parser.add_argument("--end", default=os.environ.get("FINMEM_EVAL_END", "2023-04-10"))
     parser.add_argument(
         "--state-dict-path",
-        default="data/09_results_minilm/agent_1/state_dict.pkl",
+        default=os.environ.get("FINMEM_STATE_DICT_PATH", "data/09_results_minilm/agent_1/state_dict.pkl"),
         help="Path to FinMem test output agent state_dict.pkl",
     )
     parser.add_argument(
         "--save-path",
-        default="figures/TSLA_finmem_vs_buyhold.png",
+        default=None,
     )
     args = parser.parse_args()
-    main(args.ticker, args.start, args.end, args.state_dict_path, args.save_path)
+    ticker = args.ticker.upper()
+    save_path = args.save_path or os.path.join(
+        "figures",
+        f"{ticker}_finmem_vs_buyhold.png",
+    )
+    main(ticker, args.start, args.end, args.state_dict_path, save_path)

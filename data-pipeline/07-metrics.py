@@ -136,17 +136,23 @@ def main(ticker: str, start: str, end: str, state_dict_path: str, save_path: str
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute metrics for FinMem test run")
-    parser.add_argument("--ticker", default="TSLA")
-    parser.add_argument("--start", default="2022-10-06")
-    parser.add_argument("--end", default="2023-04-10")
+    parser.add_argument("--ticker", default=os.environ.get("FINMEM_TRADING_SYMBOL", "TSLA"))
+    parser.add_argument("--start", default=os.environ.get("FINMEM_EVAL_START", "2022-10-06"))
+    parser.add_argument("--end", default=os.environ.get("FINMEM_EVAL_END", "2023-04-10"))
     parser.add_argument(
         "--state-dict-path",
-        default="data/09_results_minilm/agent_1/state_dict.pkl",
+        default=os.environ.get("FINMEM_STATE_DICT_PATH", "data/09_results_minilm/agent_1/state_dict.pkl"),
         help="Path to FinMem test output agent state_dict.pkl",
     )
     parser.add_argument(
         "--save-path",
-        default="data/07_test_model_output/TSLA_metrics_finmem.csv",
+        default=None,
     )
     args = parser.parse_args()
-    main(args.ticker, args.start, args.end, args.state_dict_path, args.save_path)
+    ticker = args.ticker.upper()
+    save_path = args.save_path or os.path.join(
+        "data",
+        "07_test_model_output",
+        f"{ticker}_metrics_finmem.csv",
+    )
+    main(ticker, args.start, args.end, args.state_dict_path, save_path)
