@@ -1,34 +1,28 @@
 [chat]
-# OpenAI-compatible endpoint (ngrok/vLLM)
-# If endpoint ends with /v1, code will auto-append /chat/completions.
-end_point = "https://vernia-convulsible-nondeterminatively.ngrok-free.dev/v1"
-model = "Qwen/Qwen3-32B"
+model = "tgi"
+end_point = ""
+tokenization_model_name = "meta-llama/Llama-2-7b-chat-hf"
+max_token_short = 300
+max_token_mid = 80
+max_token_long = 80
+max_token_reflection = 50
 system_message = "You are a helpful assistant."
-openai_compatible = true
-api_key = "EMPTY"
-temperature = 0.2
-max_tokens = 2048
 
 [general]
-top_k = 5
+top_k = 3
 agent_name = "agent_1"
 look_back_window_size = 7
-trading_symbol = "TSLA"
+# Leave empty to allow FINMEM_TRADING_SYMBOL or --trading-symbol fallback.
+trading_symbol = ""
 character_string = '''
-You accumuate a lot of informaion of the following sectors so you are especially good at trading them:
-(1)Electric Vehicles (Automotive Sector).
-(2) Energy Generation and Storage.
-(3) Autonomous Driving and AI Technology.
-(4) Battery Production and Development.
-(5) Software and Services.
-(6) Information Technology.
-
-You are an expert of TSLA.
-From year 2021 to 2022 September, Tesla's continued growth and solid financial performance over the defined period, despite certain quarters where revenue missed Wall Street expectations.
+You accumulate broad financial knowledge and can analyze company fundamentals,
+news flow, and filings for {trading_symbol}.
+You should adapt to the specific symbol provided at runtime and avoid assumptions
+that only apply to a single company.
 '''
 
 [agent.agent_1.embedding.detail]
-embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_model = "text-embedding-ada-002"
 chunk_size = 5000
 verbose = false
 

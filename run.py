@@ -9,6 +9,13 @@ from dotenv import load_dotenv
 from datetime import datetime
 from typing import Union
 from puppy import MarketEnvironment, LLMAgent, RunMode
+from puppy.runtime_config import (
+    DEFAULT_TRADING_SYMBOL,
+    expand_symbol_template,
+    resolve_path,
+    resolve_trading_symbol,
+    validate_symbol_in_market_data,
+)
 
 
 # set up
@@ -16,11 +23,17 @@ load_dotenv()
 app = typer.Typer(name="puppy")
 warnings.filterwarnings("ignore")
 
+DEFAULT_CONFIG_PATH = os.path.join("config", "finmem_cerebras_config.toml")
+
+
+def _default_market_data_path(symbol: str) -> str:
+    return os.path.join("data", "03_model_input", f"{symbol.lower()}.pkl")
+
 
 @app.command("sim", help="Start Simulation", rich_help_panel="Simulation")
 def sim_func(
-    market_data_info_path: str = typer.Option(
-        os.path.join("data", "03_model_input", "amzn.pkl"),
+    market_data_info_path: Union[str, None] = typer.Option(
+        None,
         "-mdp",
         "--market-data-path",
         help="The environment data pickle path",
@@ -34,20 +47,20 @@ def sim_func(
     run_mode: str = typer.Option(
         "train", "-rm", "--run-model", help="Run mode: train or test"
     ),
-    config_path: str = typer.Option(
-        os.path.join("config", "amzn_tgi_config.toml"),
+    config_path: Union[str, None] = typer.Option(
+        None,
         "-cp",
         "--config-path",
         help="config file path",
     ),
-    checkpoint_path: str = typer.Option(
-        os.path.join("data", "06_train_checkpoint"),
+    checkpoint_path: Union[str, None] = typer.Option(
+        None,
         "-ckp",
         "--checkpoint-path",
         help="The checkpoint path",
     ),
-    result_path: str = typer.Option(
-        os.path.join("data", "05_train_model_output"),
+    result_path: Union[str, None] = typer.Option(
+        None,
         "-rp",
         "--result-path",
         help="The result save path",
@@ -58,10 +71,51 @@ def sim_func(
         "--trained-agent-path",
         help="Only used in test mode, the path of trained agent",
     ),
+    trading_symbol: Union[str, None] = typer.Option(
+        None,
+        "-sym",
+        "--trading-symbol",
+        help="Optional symbol override used only when config does not set general.trading_symbol",
+    ),
 ) -> None:
+    config_path = resolve_path(config_path, "FINMEM_CONFIG_PATH", DEFAULT_CONFIG_PATH)
+    checkpoint_path = resolve_path(
+        checkpoint_path,
+        "FINMEM_CHECKPOINT_PATH",
+        os.path.join("data", "06_train_checkpoint"),
+    )
+    result_path = resolve_path(
+        result_path,
+        "FINMEM_RESULT_PATH",
+        os.path.join("data", "05_train_model_output"),
+    )
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
     # load config
     config = toml.load(config_path)
+    resolved_symbol = resolve_trading_symbol(
+        config=config,
+        cli_symbol=trading_symbol,
+        default_symbol=DEFAULT_TRADING_SYMBOL,
+    )
+    config.setdefault("general", {})["trading_symbol"] = resolved_symbol
+    if "character_string" in config["general"]:
+        config["general"]["character_string"] = expand_symbol_template(
+            config["general"]["character_string"],
+            resolved_symbol,
+        )
+
+    market_data_info_path = resolve_path(
+        market_data_info_path,
+        "FINMEM_MARKET_DATA_PATH",
+        _default_market_data_path(resolved_symbol),
+    )
+    if not os.path.exists(market_data_info_path):
+        raise FileNotFoundError(f"Market data file not found: {market_data_info_path}")
+
     # set up logging
+    os.makedirs(os.path.join("data", "04_model_output_log"), exist_ok=True)
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     logging_formatter = logging.Formatter(
@@ -72,7 +126,7 @@ def sim_func(
         os.path.join(
             "data",
             "04_model_output_log",
-            f'{config["general"]["trading_symbol"]}_run.log',
+            f"{resolved_symbol}_run.log",
         ),
         mode="a",
     )
@@ -86,15 +140,30 @@ def sim_func(
     # create environment
     with open(market_data_info_path, "rb") as f:
         env_data_pkl = pickle.load(f)
-    environment = MarketEnvironment(
-        symbol=config["general"]["trading_symbol"],
+    parsed_start = datetime.strptime(start_time, "%Y-%m-%d").date()
+    parsed_end = datetime.strptime(end_time, "%Y-%m-%d").date()
+    validate_symbol_in_market_data(
         env_data_pkl=env_data_pkl,
-        start_date=datetime.strptime(start_time, "%Y-%m-%d").date(),
-        end_date=datetime.strptime(end_time, "%Y-%m-%d").date(),
+        symbol=resolved_symbol,
+        start_date=parsed_start,
+        end_date=parsed_end,
+    )
+    environment = MarketEnvironment(
+        symbol=resolved_symbol,
+        env_data_pkl=env_data_pkl,
+        start_date=parsed_start,
+        end_date=parsed_end,
     )
     if run_mode_var == RunMode.Train:
         the_agent = LLMAgent.from_config(config)
     else:
+        trained_agent_path = resolve_path(
+            trained_agent_path,
+            "FINMEM_TRAINED_AGENT_PATH",
+            "",
+        )
+        if not trained_agent_path:
+            raise ValueError("trained_agent_path is required in test mode")
         the_agent = LLMAgent.load_checkpoint(path=os.path.join(trained_agent_path, "agent_1"))  # type: ignore
     # start simulation
     pbar = tqdm(total=environment.simulation_length)
@@ -122,20 +191,20 @@ def sim_func(
     rich_help_panel="Simulation",
 )
 def sim_checkpoint(
-    checkpoint_path: str = typer.Option(
-        os.path.join("data", "06_train_checkpoint"),
+    checkpoint_path: Union[str, None] = typer.Option(
+        None,
         "-ckp",
         "--checkpoint-path",
         help="The checkpoint path",
     ),
-    result_path: str = typer.Option(
-        os.path.join("data", "05_train_model_output"),
+    result_path: Union[str, None] = typer.Option(
+        None,
         "-rp",
         "--result-path",
         help="The result save path",
     ),
-    config_path: str = typer.Option(
-        os.path.join("config", "aapl_tgi_config.toml"),
+    config_path: Union[str, None] = typer.Option(
+        None,
         "-cp",
         "--config-path",
         help="config file path",
@@ -143,10 +212,43 @@ def sim_checkpoint(
     run_mode: str = typer.Option(
         "train", "-rm", "--run-model", help="Run mode: train or test"
     ),
+    trading_symbol: Union[str, None] = typer.Option(
+        None,
+        "-sym",
+        "--trading-symbol",
+        help="Optional symbol override used only when config does not set general.trading_symbol",
+    ),
 ) -> None:
+    config_path = resolve_path(config_path, "FINMEM_CONFIG_PATH", DEFAULT_CONFIG_PATH)
+    checkpoint_path = resolve_path(
+        checkpoint_path,
+        "FINMEM_CHECKPOINT_PATH",
+        os.path.join("data", "06_train_checkpoint"),
+    )
+    result_path = resolve_path(
+        result_path,
+        "FINMEM_RESULT_PATH",
+        os.path.join("data", "05_train_model_output"),
+    )
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
     # load config
     config = toml.load(config_path)
+    resolved_symbol = resolve_trading_symbol(
+        config=config,
+        cli_symbol=trading_symbol,
+        default_symbol=DEFAULT_TRADING_SYMBOL,
+    )
+    config.setdefault("general", {})["trading_symbol"] = resolved_symbol
+    if "character_string" in config["general"]:
+        config["general"]["character_string"] = expand_symbol_template(
+            config["general"]["character_string"],
+            resolved_symbol,
+        )
+
     # set up logging
+    os.makedirs(os.path.join("data", "04_model_output_log"), exist_ok=True)
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
     logging_formatter = logging.Formatter(
@@ -157,7 +259,7 @@ def sim_checkpoint(
         os.path.join(
             "data",
             "04_model_output_log",
-            f'{config["general"]["trading_symbol"]}_run.log',
+            f"{resolved_symbol}_run.log",
         ),
         mode="a",
     )
@@ -172,6 +274,10 @@ def sim_checkpoint(
     environment = MarketEnvironment.load_checkpoint(
         path=os.path.join(checkpoint_path, "env")
     )
+    if getattr(environment, "symbol", None) != resolved_symbol:
+        raise ValueError(
+            f"Checkpoint symbol '{environment.symbol}' does not match resolved trading_symbol '{resolved_symbol}'."
+        )
     the_agent = LLMAgent.load_checkpoint(path=os.path.join(checkpoint_path, "agent_1"))
     pbar = tqdm(total=environment.simulation_length)
     # run simulation

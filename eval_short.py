@@ -10,8 +10,13 @@ sys.path.append('data-pipeline')
 from importlib.machinery import SourceFileLoader
 metrics = SourceFileLoader("metrics", "data-pipeline/07-metrics.py").load_module()
 
+import argparse
+parser = argparse.ArgumentParser(description="Evaluate simulation results")
+parser.add_argument("--pkl-path", type=str, default="data/10_short_eval/test_output/agent_1/state_dict.pkl", help="Path to state_dict.pkl")
+args = parser.parse_args()
+
 # Load specific mini-test checkpoint output
-pkl_path = "data/10_short_eval/test_output/agent_1/state_dict.pkl"
+pkl_path = args.pkl_path
 try:
     with open(pkl_path, 'rb') as f:
         state = pickle.load(f)

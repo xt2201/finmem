@@ -11,6 +11,7 @@ from .chat import ChatOpenAICompatible
 from .environment import market_info_type
 from typing import Dict, Union, Any, List
 from .reflection import trading_reflection
+from .runtime_config import expand_symbol_template
 from transformers import AutoTokenizer
 
 
@@ -154,10 +155,15 @@ class LLMAgent(Agent):
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "LLMAgent":
+        symbol = config["general"]["trading_symbol"]
+        character_string = expand_symbol_template(
+            config["general"]["character_string"],
+            symbol,
+        )
         return cls(
             agent_name=config["general"]["agent_name"],
-            trading_symbol=config["general"]["trading_symbol"],
-            character_string=config["general"]["character_string"],
+            trading_symbol=symbol,
+            character_string=character_string,
             brain_db=BrainDB.from_config(config=config),
             top_k=config["general"].get("top_k", 5),
             chat_config=config["chat"],

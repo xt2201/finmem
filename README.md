@@ -91,22 +91,30 @@ Once the setup is complete, you can enter the environment using:
 source .venv/bin/activate
 ```
 
-### Running the Paper Evaluation Pipeline (TSLA)
+### Running the Paper Evaluation Pipeline (Any Symbol)
 
-To completely replicate the conditions found in the FinMem paper for the Tesla (TSLA) evaluation spanning mid-2021 to mid-2023, you can use our built-in customized data pipeline and evaluation script.
+You can run the paper-style flow for any supported ticker symbol by selecting the symbol through config or environment variables.
 
-**Note:** The compiled dataset `data/03_model_input/tsla.pkl` is already included in this repository. You can skip Step 1 and run the simulation immediately (Step 2) without needing external API keys for data downloading!
+Precedence used by runtime symbol resolution is:
+
+1. `general.trading_symbol` in config
+2. `FINMEM_TRADING_SYMBOL` environment variable
+3. CLI `--trading-symbol`
+4. Internal default (`TSLA`)
+
+**Note:** The compiled dataset `data/03_model_input/tsla.pkl` is included in this repository for quick testing.
 
 1. **(Optional) Build the Realistic Dataset:** Fetch real-time data from `yfinance`, download news coverage securely from `Alpaca`, and pull standard `10-K` / `10-Q` company filings using the SEC API. Ensure your `.env` contains the keys listed above.
 
 ```bash
-python data-pipeline/09_build_paper_tsla_input.py
+python data-pipeline/09_build_paper_input.py --symbol AAPL --start 2021-08-17 --end 2023-04-10
 ```
-*(This generates a compiled dictionary of standard memory inputs securely stored in `data/03_model_input/tsla.pkl`.)*
+*(This generates `data/03_model_input/aapl.pkl` if no `--output-path` is provided.)*
 
-2. **Run the Full Paper Simulation Timeline:** Train memory representations from `2021-08-17` to `2022-10-05` and perform test trades acting on that memory from `2022-10-06` to `2023-04-10`. 
+2. **Run the Full Paper Simulation Timeline:** Train memory representations from `2021-08-17` to `2022-10-05` and perform test trades from `2022-10-06` to `2023-04-10`.
 
 ```bash
+export SYMBOL=AAPL
 bash run_paper_eval.sh
 ```
 
@@ -125,7 +133,8 @@ python data-pipeline/06-Visualize-results.py
 If you want to run FinMem against a self-hosted OpenAI-compatible server (for example a vLLM endpoint exposed by ngrok), use the provided config:
 
 ```bash
-python run.py sim -mdp data/03_model_input/tsla.pkl -st 2021-08-17 -et 2022-10-05 -rm train -cp config/tsla_openai_compatible_config.toml
+export FINMEM_TRADING_SYMBOL=AAPL
+python run.py sim -mdp data/03_model_input/aapl.pkl -st 2021-08-17 -et 2022-10-05 -rm train -cp config/finmem_openai_compatible_config.toml
 ```
 
 Notes:
@@ -133,6 +142,7 @@ Notes:
 - Set `[chat].model` to your hosted model ID.
 - Set `[chat].openai_compatible = true`.
 - Use `[chat].api_key = "EMPTY"` if your server does not require a real key.
+- Use `config/finmem_cerebras_config.toml`, `config/finmem_openai_compatible_config.toml`, `config/finmem_gemini_config.toml`, or `config/finmem_tgi_config.toml` as generic templates.
 
 ## Program Usage
 
@@ -149,12 +159,12 @@ export KMP_DUPLICATE_LIB_OK="TRUE"
 
 1. **Populate Memory (Train Mode)** spanning Jan 13 -> Jan 15:
 ```bash
-python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-13 -et 2016-01-15 -rm train -cp config/tsla_cerebras_config.toml
+python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-13 -et 2016-01-15 -rm train -cp config/finmem_cerebras_config.toml
 ```
 
 2. **Generate Trades (Test Mode)** for Jan 19 -> Jan 20 utilizing the previously generated checkpoints:
 ```bash
-python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-19 -et 2016-01-20 -rm test -cp config/tsla_cerebras_config.toml -tap data/05_train_model_output
+python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-19 -et 2016-01-20 -rm test -cp config/finmem_cerebras_config.toml -tap data/05_train_model_output
 ```
 
 ### Advanced Usage Information
@@ -165,14 +175,15 @@ python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-19 -et 2016-
  Start Simulation
 
  Options
- --market-data-path    -mdp      TEXT  The environment data pickle path [default: data/06_input/subset_symbols.pkl]
- --start-time          -st       TEXT  The training or test start time [default: 2022-06-30 For Ticker 'TSLA']
- --end-time            -et       TEXT  The training or test end time [default: 2022-10-11]
+ --market-data-path    -mdp      TEXT  The environment data pickle path [default: data/03_model_input/<symbol>.pkl]
+ --start-time          -st       TEXT  The training or test start time [default: 2022-08-16]
+ --end-time            -et       TEXT  The training or test end time [default: 2022-10-04]
  --run-model           -rm       TEXT  Run mode: train or test [default: train]
- --config-path         -cp       TEXT  config file path [default: config/config.toml]
- --checkpoint-path     -ckp      TEXT  The checkpoint save path [default: data/10_checkpoint_test]
- --result-path         -rp       TEXT  The result save path [default: data/11_train_result]
+ --config-path         -cp       TEXT  config file path [default: config/finmem_cerebras_config.toml]
+ --checkpoint-path     -ckp      TEXT  The checkpoint save path [default: data/06_train_checkpoint]
+ --result-path         -rp       TEXT  The result save path [default: data/05_train_model_output]
  --trained-agent-path  -tap      TEXT  Only used in test mode, the path of trained agent [default: None]
+ --trading-symbol      -sym      TEXT  Optional symbol override used only when config has no general.trading_symbol
  --help                                Show this message and exit.
 ```
 
@@ -184,10 +195,11 @@ If the API disconnects or rate-limits, the training process can be resumed secur
  Start Simulation from checkpoint
 
  Options
- --checkpoint-path  -cp      TEXT  The checkpoint path [default: data/06_train_checkpoint]
+ --checkpoint-path  -ckp     TEXT  The checkpoint path [default: data/06_train_checkpoint]
  --result-path      -rp      TEXT  The result save path [default: data/05_train_model_output]
- --config-path      -ckp     TEXT  config file path [default: config/tsla_config.toml]
+ --config-path      -cp      TEXT  config file path [default: config/finmem_cerebras_config.toml]
  --run-model        -rm      TEXT  Run mode: train or test [default: train]
+ --trading-symbol   -sym     TEXT  Optional symbol override used only when config has no general.trading_symbol
  --help                            Show this message and exit.
 ```
 ## Star History

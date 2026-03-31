@@ -54,9 +54,9 @@ FinMem-LLM-StockTrading/
  .env / .env.example # API keys (CEREBRAS_API_KEY, HF_TOKEN)
 
  config/
- tsla_cerebras_config.toml # Config for Cerebras (Qwen model)
- tsla_gemini_config.toml # Config for Gemini
- tsla_tgi_config.toml # Config for HuggingFace TGI
+ finmem_cerebras_config.toml # Generic config template for Cerebras (Qwen model)
+ finmem_gemini_config.toml # Generic config template for Gemini
+ finmem_tgi_config.toml # Generic config template for HuggingFace TGI
 
  puppy/ # Core source package
  __init__.py # Exports: MarketEnvironment, LLMAgent, RunMode

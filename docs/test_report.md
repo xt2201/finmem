@@ -107,7 +107,7 @@ python run.py sim \
   -mdp data/06_input/subset_symbols.pkl \
   -st 2016-01-13 -et 2016-01-20 \
   -rm train \
-  -cp config/tsla_cerebras_config.toml
+  -cp config/finmem_cerebras_config.toml
 ```
 
 **Result: ✅ SUCCESS** — 4/4 steps completed in ~25 s
@@ -133,7 +133,7 @@ python run.py sim \
   -mdp data/06_input/subset_symbols.pkl \
   -st 2016-01-19 -et 2016-01-21 \
   -rm test \
-  -cp config/tsla_cerebras_config.toml \
+  -cp config/finmem_cerebras_config.toml \
   -tap data/05_train_model_output
 ```
 
@@ -166,7 +166,7 @@ python run.py sim \
 python run.py sim-checkpoint \
   -ckp data/06_train_checkpoint \
   -rp data/07_test_model_output \
-  -cp config/tsla_cerebras_config.toml \
+  -cp config/finmem_cerebras_config.toml \
   -rm test
 ```
 
