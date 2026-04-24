@@ -117,6 +117,7 @@ class LLMAgent(Agent):
                 f"{self.trading_symbol}_run.log",
             ),
             mode="a",
+            encoding="utf-8",
         )
         file_handler.setFormatter(logging_formatter)
         self.logger.addHandler(file_handler)
@@ -152,6 +153,58 @@ class LLMAgent(Agent):
         # records
         self.reflection_result_series_dict = {}
         self.access_counter = {}
+
+    @staticmethod
+    def _is_usable_reflection_summary(summary: Any) -> bool:
+        if not isinstance(summary, str):
+            return False
+        normalized = summary.strip().lower()
+        if not normalized or normalized in {"none", "null", "nan"}:
+            return False
+        bad_markers = (
+            "json does not match schema",
+            "output is not parseable as json",
+            "validation failed",
+        )
+        return not any(marker in normalized for marker in bad_markers)
+
+    @staticmethod
+    def _validate_market_info_payload(market_info: market_info_type) -> None:
+        if not isinstance(market_info, tuple):
+            raise TypeError(
+                "market_info must be the tuple returned by MarketEnvironment.step()."
+            )
+        if len(market_info) != 7:
+            raise ValueError(f"market_info must contain 7 fields, got {len(market_info)}.")
+
+        (
+            cur_date,
+            cur_price,
+            cur_filing_k,
+            cur_filing_q,
+            cur_news,
+            cur_record,
+            terminated,
+        ) = market_info
+
+        if terminated:
+            raise ValueError(
+                "market_info indicates terminated=True. Stop the loop before calling agent.step()."
+            )
+        if not isinstance(cur_date, date):
+            raise TypeError("market_info[0] must be datetime.date.")
+        if not isinstance(cur_price, (int, float)):
+            raise TypeError("market_info[1] must be a numeric price.")
+        if cur_filing_k is not None and not isinstance(cur_filing_k, str):
+            raise TypeError("market_info[2] must be str or None.")
+        if cur_filing_q is not None and not isinstance(cur_filing_q, str):
+            raise TypeError("market_info[3] must be str or None.")
+        if not isinstance(cur_news, list) or any(
+            not isinstance(item, str) for item in cur_news
+        ):
+            raise TypeError("market_info[4] must be a list[str].")
+        if not isinstance(cur_record, (int, float)):
+            raise TypeError("market_info[5] must be numeric.")
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "LLMAgent":
@@ -353,6 +406,7 @@ class LLMAgent(Agent):
                     cur_reflection_memory_id,
                     cur_moment,  # type: ignore
                 )
+        raise ValueError(f"Unsupported run_mode for reflection query: {run_mode}")
 
     def __reflection_on_record(
         self,
@@ -423,15 +477,18 @@ class LLMAgent(Agent):
                 momentum=cur_moment,
                 logger=self.logger,
             )
+        else:
+            raise ValueError(f"Unsupported run_mode for reflection: {run_mode}")
 
-        if (reflection_result is not {}) and ("summary_reason" in reflection_result):
+        summary_reason = reflection_result.get("summary_reason")
+        if self._is_usable_reflection_summary(summary_reason):
             self.brain.add_memory_reflection(
                 symbol=self.trading_symbol,
                 date=cur_date,
-                text=reflection_result["summary_reason"],
+                text=summary_reason,
             )
         else:
-            self.logger.info("No reflection result , not converged\n")
+            self.logger.info("Skip reflection memory write due to invalid/empty summary_reason\n")
         return reflection_result
 
     def _reflect(
@@ -446,10 +503,12 @@ class LLMAgent(Agent):
                 cur_record=cur_record,
                 run_mode=run_mode,
             )
-        else:
+        elif run_mode == RunMode.Test:
             reflection_result_cur_date = self.__reflection_on_record(
                 cur_date=cur_date, run_mode=run_mode
             )
+        else:
+            raise ValueError(f"Unsupported run_mode for _reflect: {run_mode}")
         self.reflection_result_series_dict[cur_date] = reflection_result_cur_date
         if run_mode == RunMode.Train:
             self.logger.info(
@@ -581,6 +640,7 @@ class LLMAgent(Agent):
         # mode assertion
         if run_mode not in [RunMode.Train, RunMode.Test]:
             raise ValueError("run_mode should be either Train or Test")
+        self._validate_market_info_payload(market_info)
         # market info
         cur_date = market_info[0]
         cur_price = market_info[1]

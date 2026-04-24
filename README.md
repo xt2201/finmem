@@ -7,12 +7,14 @@
                                         -- F. Scott Fitzgerald: The Great Gatsby
 ```
 
-This repo provides the Python source code for the paper:
+This repository contains the Python implementation of the paper:
 [FINMEM: A Performance-Enhanced Large Language Model Trading Agent with Layered Memory and Character Design](https://arxiv.org/abs/2311.13743) [[PDF]](https://arxiv.org/pdf/2311.13743.pdf)
+
+## Citation
 
 ```bibtex
 @misc{yu2023finmem,
-      title={FinMem: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design}, 
+      title={FinMem: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design},
       author={Yangyang Yu and Haohang Li and Zhi Chen and Yuechen Jiang and Yang Li and Denghui Zhang and Rong Liu and Jordan W. Suchow and Khaldoun Khashanah},
       year={2023},
       eprint={2311.13743},
@@ -20,188 +22,335 @@ This repo provides the Python source code for the paper:
       primaryClass={q-fin.CP}
 }
 ```
-Update (Date: 01-16-2024)
 
-Our work, "FINMEM: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design," has been selected for an extended abstract at the AAAI Spring Symposium on Human-Like Learning!
+## Overview
 
-Update (Date: 03-11-2024)
+FinMem combines:
 
-Our paper, "FINMEM: A Performance-Enhanced LLM Trading Agent with Layered Memory and Character Design", has been accepted by ICLR Workshop LLM Agents!
+- Character/profile prompts for the agent
+- Layered memory (short/mid/long/reflection)
+- LLM-based reflection to generate daily trading decisions
 
-Update (Date: 06-16-2024)
+In this repository, the runtime has been extended with:
 
-Thank you to all the participants and organizers of the IJCAI2024 challenge, "Financial Challenges in Large Language Models - FinLLM". Our team, FinMem, was thrilled to contribute to Task 3: Single Stock Trading.
+- US and VN market support
+- VN news ingestion and optional translation-before-VADER sentiment scoring
+- Checkpoint resume flow (`sim-checkpoint`)
+- RL baselines (`DQN`, `A2C`, `PPO`) and comparison plotting
 
-As the challenge wrapped up yesterday (06/15/2024), we reflect on the innovative approaches and insights gained throughout this journey. A total of 12 teams participated, each bringing unique perspectives and solutions to the forefront of financial AI and Large Language Models.
+Default embedding model in current config is:
 
-We invite the community to continue engaging with us as we look forward to further developments and collaborations in this exciting field.
+- `sentence-transformers/all-MiniLM-L6-v2`
 
+## Repository Layout
 
-Recent advancements in Large Language Models (LLMs) have exhibited notable efficacy in question-answering (QA) tasks across diverse domains. Their prowess in integrating extensive web knowledge has fueled interest in developing LLM-based autonomous agents. While LLMs are efficient in decoding human instructions and deriving solutions by holistically processing historical inputs, transitioning to purpose-driven agents requires a supplementary rational architecture to process multi-source information, establish reasoning chains, and prioritize critical tasks. Addressing this, we introduce FinMem, a novel LLM-based agent framework devised for financial decision-making, encompassing three core modules: Profiling, to outline the agent's characteristics; Memory, with layered processing, to aid the agent in assimilating realistic hierarchical financial data; and Decision-making, to convert insights gained from memories into investment decisions. Notably, FinMem's memory module aligns closely with the cognitive structure of human traders, offering robust interpretability and real-time tuning. Its adjustable cognitive span allows for the retention of critical information beyond human perceptual limits, thereby enhancing trading outcomes. This framework enables the agent to self-evolve its professional knowledge, react agilely to new investment cues, and continuously refine trading decisions in the volatile financial environment. We first compare FinMem with various algorithmic agents on a scalable real-world financial dataset, underscoring its leading trading performance in stocks and funds. We then fine-tuned the agent's perceptual spans to achieve a significant trading performance. Collectively, FinMem presents a cutting-edge LLM agent framework for automated trading, boosting cumulative investment returns.
-
-![1](figures/memory_flow.png)
-![2](figures/workflow.png)
-![3](figures/character.png)
-
-## Repository Structure
-
-```bash
-finmem
-|-- LICENSE
-|-- README.md
-|-- config           # Configurations for the program
-|-- data             # Data
-|-- puppy            # Source code
-|-- run.py           # Entry point of the program
-|-- tests            # Unit and integration tests
-|-- run_examples.sh  # Script for running examples
+```text
+finmem/
+|- config/                # Runtime configuration templates
+|- data/                  # Inputs, checkpoints, outputs
+|- data-pipeline/         # Data build/eval/visualization scripts
+|- docs/                  # Additional docs
+|- figures/               # Generated plots
+|- puppy/                 # Core FinMem agent/runtime code
+|- rl/                    # RL baseline training/eval utilities
+|- tests/                 # Regression and validation tests
+|- run.py                 # Typer CLI entrypoint
+|- run_paper_eval.sh      # Near-paper split helper (train+test)
+|- run_cerebras.sh        # Simple Cerebras wrapper script
+|- run_gemini.sh          # Simple Gemini-compatible wrapper script
+|- run_tgi.sh             # Simple TGI-compatible wrapper script
+|- setup.sh               # One-command setup for sample data flow
+|- pyproject.toml
+|- README.md
 ```
 
+## Prerequisites
 
+- Python `>=3.10,<3.11`
+- Bash-compatible shell for helper scripts (`Git Bash` or `WSL` on Windows)
+- `uv` recommended for setup
 
-## Usage
+## Quickstart
 
-### Setting Environment Variables
+### 1) Create environment and install dependencies
 
-The project uses Cerebras for LLM generation and HuggingFace for embeddings (defaulting to `intfloat/multilingual-e5-large`).
+Recommended (uses repository setup script):
 
-Create a `.env` file in the root directory and ensure all API keys below are provided:
-
-```bash
-CEREBRAS_API_KEY="<Your Cerebras API Key>"
-HF_TOKEN="<Your HF token>"
-SEC_KEY="<Your SEC API key (from sec-api.io)>"
-ALPACA_API_KEY="<Your Alpaca API key>"
-ALPACA_API_SECRET_KEY="<Your Alpaca API secret key>"
-ALPACA_ENDPOINT="https://paper-api.alpaca.markets/v2"
-ALPACA_NEWS_ENDPOINT="https://data.alpaca.markets/v1beta1/news"
-```
-
-### Quick Setup
-
-The recommended way to set up the environment and extract historical data is using the provided setup script. This script requires [uv](https://github.com/astral-sh/uv).
-
-Run the following command to automatically create a virtual environment, install dependencies, and format the compressed sample dataset for the simulation:
 ```bash
 bash setup.sh
 ```
 
-Once the setup is complete, you can enter the environment using:
+Activate environment after setup:
+
+- Linux/macOS/WSL:
+
 ```bash
 source .venv/bin/activate
 ```
 
-### Running the Paper Evaluation Pipeline (Any Symbol)
+- Git Bash on Windows:
 
-You can run the paper-style flow for any supported ticker symbol by selecting the symbol through config or environment variables.
+```bash
+source .venv/Scripts/activate
+```
 
-Precedence used by runtime symbol resolution is:
+- PowerShell on Windows:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+### 2) Configure `.env`
+
+Copy `.env.example` and set keys for your workflow.
+
+Required by workflow:
+
+- US market data build: `ALPACA_API_KEY`, `ALPACA_API_SECRET_KEY`, `SEC_KEY`
+- VN market runs (enforced): `CEREBRAS_API_KEY`
+- Embedding/translation model download (when needed): `HF_TOKEN`
+- Gemini/TGI/OpenAI-compatible wrappers: `OPENAI_API_KEY` (depending on endpoint)
+
+Core runtime overrides:
+
+| Variable | Purpose |
+| --- | --- |
+| `FINMEM_TRADING_SYMBOL` | Symbol fallback when config has empty `general.trading_symbol` |
+| `FINMEM_MARKET_MODE` / `FINMEM_MARKET` | Market selection (`US` or `VN`) |
+| `FINMEM_CONFIG_PATH` | Override config TOML path |
+| `FINMEM_MARKET_DATA_PATH` | Override market input pickle path |
+| `FINMEM_CHECKPOINT_PATH` | Override checkpoint directory |
+| `FINMEM_RESULT_PATH` | Override result directory |
+| `FINMEM_TRAINED_AGENT_PATH` | Train artifact path for test mode |
+
+VN pipeline and sentiment overrides:
+
+| Variable | Purpose |
+| --- | --- |
+| `FINMEM_VNSTOCK_SOURCE` | VN source selector (KBS-only is enforced) |
+| `FINMEM_VNSTOCK_NEWS_LIMIT` | Total VN news rows to fetch |
+| `FINMEM_VNSTOCK_NEWS_PAGE_SIZE` | VN page size (capped for KBS) |
+| `FINMEM_VNSTOCK_NEWS_MAX_PAGE` | Max VN pages to request |
+| `FINMEM_VN_NEWS_ALIGN_WINDOW_DAYS` | Alignment window from news date to trading date |
+| `FINMEM_VN_TRANSLATE_FOR_VADER` | Enable translation-before-VADER (`1`/`0`) |
+| `FINMEM_VN_TRANSLATION_MODEL` | Translation model (default `Helsinki-NLP/opus-mt-vi-en`) |
+| `FINMEM_VN_TRANSLATION_LOCAL_ONLY` | Use local cache only for translation model |
+| `FINMEM_VN_TRANSLATION_MAX_LENGTH` | Translation truncation length |
+
+Build/eval helper overrides:
+
+| Variable | Purpose |
+| --- | --- |
+| `FINMEM_BUILD_START`, `FINMEM_BUILD_END` | Defaults for data build script |
+| `FINMEM_MAX_NEWS_PER_DAY`, `FINMEM_NEWS_SLEEP_SECONDS` | News build controls |
+| `FINMEM_EVAL_START`, `FINMEM_EVAL_END` | Defaults for metrics/plot scripts |
+| `FINMEM_STATE_DICT_PATH` | Default FinMem state dict path for eval scripts |
+
+## Build Market Input Data
+
+### US market
+
+```bash
+python data-pipeline/09_build_paper_input.py \
+  --market US \
+  --symbol TSLA \
+  --start 2021-08-17 \
+  --end 2023-04-10
+```
+
+### VN market
+
+```bash
+export FINMEM_MARKET_MODE=VN
+export FINMEM_VNSTOCK_SOURCE=KBS
+export FINMEM_VN_TRANSLATE_FOR_VADER=1
+
+python data-pipeline/09_build_paper_input.py \
+  --market VN \
+  --symbol VCI \
+  --start 2024-01-02 \
+  --end 2024-12-31
+```
+
+Default output path is `data/03_model_input/<symbol>.pkl`.
+
+## Run FinMem Simulation
+
+### Symbol resolution precedence
+
+Runtime resolves trading symbol in this order:
 
 1. `general.trading_symbol` in config
-2. `FINMEM_TRADING_SYMBOL` environment variable
+2. `FINMEM_TRADING_SYMBOL`
 3. CLI `--trading-symbol`
-4. Internal default (`TSLA`)
+4. Internal default `TSLA`
 
-**Note:** The compiled dataset `data/03_model_input/tsla.pkl` is included in this repository for quick testing.
-
-1. **(Optional) Build the Realistic Dataset:** Fetch real-time data from `yfinance`, download news coverage securely from `Alpaca`, and pull standard `10-K` / `10-Q` company filings using the SEC API. Ensure your `.env` contains the keys listed above.
+### Train mode
 
 ```bash
-python data-pipeline/09_build_paper_input.py --symbol AAPL --start 2021-08-17 --end 2023-04-10
+python run.py sim \
+  -mdp data/03_model_input/tsla.pkl \
+  -st 2021-08-17 \
+  -et 2022-10-05 \
+  -rm train \
+  -cp config/finmem_cerebras_config.toml \
+  -ckp data/06_train_checkpoint \
+  -rp data/05_train_model_output
 ```
-*(This generates `data/03_model_input/aapl.pkl` if no `--output-path` is provided.)*
 
-2. **Run the Full Paper Simulation Timeline:** Train memory representations from `2021-08-17` to `2022-10-05` and perform test trades from `2022-10-06` to `2023-04-10`.
+### Test mode
 
 ```bash
-export SYMBOL=AAPL
+python run.py sim \
+  -mdp data/03_model_input/tsla.pkl \
+  -st 2022-10-06 \
+  -et 2023-04-10 \
+  -rm test \
+  -cp config/finmem_cerebras_config.toml \
+  -tap data/05_train_model_output \
+  -ckp data/08_test_checkpoint \
+  -rp data/09_results
+```
+
+### Resume from checkpoint
+
+```bash
+python run.py sim-checkpoint \
+  -cp config/finmem_cerebras_config.toml \
+  -rm train \
+  -ckp data/06_train_checkpoint \
+  -rp data/05_train_model_output
+```
+
+### Near-paper split helper
+
+`run_paper_eval.sh` now runs the full default pipeline:
+
+- Train: `2021-08-17` to `2022-10-05`
+- Test: `2022-10-06` to `2023-04-10`
+- RL baselines with retry (`DQN`, `A2C`, `PPO`)
+- Final 5-measure metrics (`FinMem`, `Buy & Hold`, `A2C`, `DQN`, `PPO`)
+- Final 5-measure cumulative return figure
+
+```bash
+export SYMBOL=TSLA
+export MARKET_MODE=US
 bash run_paper_eval.sh
 ```
 
-*(Note that `run_paper_eval.sh` already establishes MacOS stability flags like `KMP_DUPLICATE_LIB_OK="TRUE"` and `OMP_NUM_THREADS="1"` for smooth execution.)*
-
-3. **Evaluate and Visualize Results:**
-After the test is completed, calculate financial metrics (Sharpe Ratio, Cumulative Return, MDD) and visualize performance against baseline strategies (Buy & Hold):
+VN example:
 
 ```bash
-python data-pipeline/07-metrics.py
-python data-pipeline/06-Visualize-results.py
+export SYMBOL=VCI
+export MARKET_MODE=VN
+export CONFIG_PATH=config/finmem_cerebras_vn_config.toml
+bash run_paper_eval.sh
 ```
 
-### Optional: Use a Custom OpenAI-Compatible Endpoint (ngrok/vLLM)
+## Evaluate and Visualize
 
-If you want to run FinMem against a self-hosted OpenAI-compatible server (for example a vLLM endpoint exposed by ngrok), use the provided config:
+Compute metrics for 5 measures (`FinMem`, `Buy & Hold`, `A2C`, `DQN`, `PPO`):
 
 ```bash
-export FINMEM_TRADING_SYMBOL=AAPL
-python run.py sim -mdp data/03_model_input/aapl.pkl -st 2021-08-17 -et 2022-10-05 -rm train -cp config/finmem_openai_compatible_config.toml
+python data-pipeline/07-metrics.py \
+  --market US \
+  --ticker TSLA \
+  --start 2022-10-06 \
+  --end 2023-04-10 \
+  --market-data-path data/03_model_input/tsla.pkl \
+  --state-dict-path data/09_results/agent_1/state_dict.pkl \
+  --actions-output-dir data/09_results \
+  --save-path data/09_results/TSLA_metrics_5measures.csv
 ```
 
-Notes:
-- Set `[chat].end_point` to your server base URL (for example `https://.../v1`) or full chat endpoint (`https://.../v1/chat/completions`).
-- Set `[chat].model` to your hosted model ID.
-- Set `[chat].openai_compatible = true`.
-- Use `[chat].api_key = "EMPTY"` if your server does not require a real key.
-- Use `config/finmem_cerebras_config.toml`, `config/finmem_openai_compatible_config.toml`, `config/finmem_gemini_config.toml`, or `config/finmem_tgi_config.toml` as generic templates.
-
-## Program Usage
-
-The program uses two modes: `train` and `test`. 
-- **Train mode**: Streams information over time to populate the agent's memory index without generating trades.
-- **Test mode**: The agent queries its existing memory databases against new daily information to make actual trading choices.
-
-### Example: Running a Practical Simulation
-
-Ensure OpenMP library duplication is allowed for Huggingface tokenizers prior to running:
-```bash
-export KMP_DUPLICATE_LIB_OK="TRUE"
-```
-
-1. **Populate Memory (Train Mode)** spanning Jan 13 -> Jan 15:
-```bash
-python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-13 -et 2016-01-15 -rm train -cp config/finmem_cerebras_config.toml
-```
-
-2. **Generate Trades (Test Mode)** for Jan 19 -> Jan 20 utilizing the previously generated checkpoints:
-```bash
-python run.py sim -mdp data/06_input/subset_symbols.pkl -st 2016-01-19 -et 2016-01-20 -rm test -cp config/finmem_cerebras_config.toml -tap data/05_train_model_output
-```
-
-### Advanced Usage Information
+Plot cumulative return comparison with 5 curves:
 
 ```bash
- Usage: run.py sim [OPTIONS]
-
- Start Simulation
-
- Options
- --market-data-path    -mdp      TEXT  The environment data pickle path [default: data/03_model_input/<symbol>.pkl]
- --start-time          -st       TEXT  The training or test start time [default: 2022-08-16]
- --end-time            -et       TEXT  The training or test end time [default: 2022-10-04]
- --run-model           -rm       TEXT  Run mode: train or test [default: train]
- --config-path         -cp       TEXT  config file path [default: config/finmem_cerebras_config.toml]
- --checkpoint-path     -ckp      TEXT  The checkpoint save path [default: data/06_train_checkpoint]
- --result-path         -rp       TEXT  The result save path [default: data/05_train_model_output]
- --trained-agent-path  -tap      TEXT  Only used in test mode, the path of trained agent [default: None]
- --trading-symbol      -sym      TEXT  Optional symbol override used only when config has no general.trading_symbol
- --help                                Show this message and exit.
+python data-pipeline/06-Visualize-results.py \
+  --market US \
+  --ticker TSLA \
+  --start 2022-10-06 \
+  --end 2023-04-10 \
+  --market-data-path data/03_model_input/tsla.pkl \
+  --state-dict-path data/09_results/agent_1/state_dict.pkl \
+  --actions-output-dir data/09_results \
+  --save-path data/09_results/TSLA_5measures.png
 ```
 
-If the API disconnects or rate-limits, the training process can be resumed securely from checkpoints:
+## RL Baselines and Comparison Plot
+
+Train RL baselines and generate comparison plot:
 
 ```bash
- Usage: run.py sim-checkpoint [OPTIONS]
-
- Start Simulation from checkpoint
-
- Options
- --checkpoint-path  -ckp     TEXT  The checkpoint path [default: data/06_train_checkpoint]
- --result-path      -rp      TEXT  The result save path [default: data/05_train_model_output]
- --config-path      -cp      TEXT  config file path [default: config/finmem_cerebras_config.toml]
- --run-model        -rm      TEXT  Run mode: train or test [default: train]
- --trading-symbol   -sym     TEXT  Optional symbol override used only when config has no general.trading_symbol
- --help                            Show this message and exit.
+python run.py sim-rl \
+  --algorithm all \
+  --market-data-path data/03_model_input/tsla.pkl \
+  --train-start 2021-08-17 \
+  --train-end 2022-10-05 \
+  --test-start 2022-10-06 \
+  --test-end 2023-04-10 \
+  --episodes 20 \
+  --window 10 \
+  --market-mode US \
+  --seed 42 \
+  --retry-count 2 \
+  --retry-seed-step 101 \
+  --finmem-state-dict data/09_results/agent_1/state_dict.pkl \
+  --actions-output-dir data/09_results
 ```
+
+Saved RL action artifacts:
+
+- `data/09_results/<TICKER>_actions_dqn.pkl`
+- `data/09_results/<TICKER>_actions_a2c.pkl`
+- `data/09_results/<TICKER>_actions_ppo.pkl`
+
+## Script Shortcuts
+
+- `run_cerebras.sh`: quick train/test wrapper for Cerebras config
+- `run_gemini.sh`: quick wrapper using Gemini-style config
+- `run_tgi.sh`: quick wrapper for TGI endpoint config
+- `run_paper_eval.sh`: canonical full helper (train + test + RL + 5-measure metrics/plot)
+
+## Artifact Lifecycle and Cleanup
+
+Common generated directories:
+
+| Directory | Content | Keep Policy |
+| --- | --- | --- |
+| `data/03_model_input/` | Built env_data pickles | Keep (source for reruns) |
+| `data/04_model_output_log/` | Runtime logs | Optional keep |
+| `data/05_train_model_output/` | Train outputs (`state_dict.pkl`) | Keep latest stable |
+| `data/06_train_checkpoint/` | Train checkpoints | Optional after successful train |
+| `data/08_test_checkpoint/` | Test checkpoints | Optional after successful test |
+| `data/09_results/` | Test outputs (`state_dict.pkl`) | Keep latest stable |
+| `figures/` | Generated plots | Keep canonical plots only |
+
+Minimal keep set for reproducibility:
+
+- Input market pickle in `data/03_model_input/`
+- Train `state_dict.pkl` used by test
+- Test `state_dict.pkl` used by metrics/plots
+- Final report plots and metrics CSV
+
+## Troubleshooting
+
+- `Resolved trading_symbol 'X' not found in market data`:
+  symbol is missing in selected `env_data` range. Rebuild input or pass correct symbol.
+
+- `start_date and end_date must be present in market data`:
+  `-st` and `-et` must match exact trading-day keys in the pickle, not arbitrary calendar dates.
+
+- `VN mode requires Cerebras provider only`:
+  use VN Cerebras config and set `CEREBRAS_API_KEY`.
+
+- `trained_agent_path is required in test mode`:
+  pass `-tap` pointing to directory that contains `agent_1/state_dict.pkl`.
+
+- Action/price horizon mismatch in metrics/plot:
+  state dict, RL action artifacts, and requested date window must match exactly.
+  Re-run test + sim-rl with the same `--test-start/--test-end` window.
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=pipiku915/FinMem-LLM-StockTrading&type=Date)](https://star-history.com/#pipiku915/FinMem-LLM-StockTrading&Date)

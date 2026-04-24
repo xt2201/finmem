@@ -1,0 +1,47 @@
+=== TỔNG HỢP TIN TỨC VCI (2025-01-02 đến 2025-09-30) ===
+
+--- Ngày: 2025-06-17 ---
+[1] VCI: Thông báo giao dịch cổ phiếu của người nội bộ Đoàn Minh Thiện The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-06-19 ---
+[1] VCI: Thông báo Quyết định của VSDC về việc đình chỉ hoạt động lưu ký chứng khoán The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[2] Nhiều lần sửa lỗi giao dịch, Vietcap bị đình chỉ hoạt động lưu ký, VNDirect bị khiển trách The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-06-27 ---
+[1] VCI: Thông báo về việc ký hợp đồng kiểm toán BCTC năm 2025 The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[2] VCI: Báo cáo kết quả giao dịch cổ phiếu của Người nội bộ Đoàn Trần Phương Thảo, Đinh Quang Hoàn, Đoàn Minh Thiện The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[3] VCI: Báo cáo kết quả giao dịch cổ phiếu của Người nội bộ Nguyễn Quang Bảo, Bùi Vũ Hoàng Tuyên The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[4] VCI: Báo cáo kết quả giao dịch cổ phiếu của người nội bộ Tô Hải The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-01 ---
+[1] VCI: Nghị quyết HĐQT về việc điều chỉnh DS Phát hành cổ phiếu ESOP 2025 The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-03 ---
+[1] VCI: Thông báo thay đổi số lượng cổ phiếu có quyền biểu quyết đang lưu hành The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[2] VCI: Điều lệ công ty sửa đổi ban hành tháng 07/2025 The positive score for this news is 0.171. The neutral score for this news is 0.592. The negative score for this news is 0.237.
+[3] VCI: Báo cáo kết quả phát hành cổ phiếu ESOP năm 2025 The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-04 ---
+[1] VCI: Nghị quyết HĐQT về việc thông qua kết quả phát hành ESOP 2025 & tăng vốn điều lệ The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[2] VCI: Thông báo nhận được QĐ số 725/QĐ-DNL của Chi cục thuế DN lớn The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+[3] VCI: Nghị quyết HĐQT về việc nhận khoản vay tín dụng từ các ngân hàng nước ngoài The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-18 ---
+[1] VCI: BCTC Tóm tắt quý 2 năm 2025 The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-22 ---
+[1] Cú sốc thuế quan ảnh hưởng mảng tự doanh, Vietcap giảm 34% lợi nhuận trong quý 2 The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-23 ---
+[1] VCI: Thông báo Quyết định của UBCKNN về việc sửa đổi QĐ chấp thuận thành lập Phòng GD Đống Đa The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-28 ---
+[1] Phân tích kỹ thuật phiên chiều 28/07: Triển vọng tích cực vẫn hiện hữu The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-29 ---
+[1] VCI: Báo cáo tình hình quản trị 6 tháng đầu năm 2025 The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+--- Ngày: 2025-07-31 ---
+[1] VCI: Quyết định về việc thay đổi đăng ký niêm yết The positive score for this news is 0.0. The neutral score for this news is 1.0. The negative score for this news is 0.0.
+
+Tổng số bản tin: 20

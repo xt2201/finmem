@@ -1,7 +1,6 @@
 import os
 import faiss
 import pickle
-import faiss
 import logging
 import shutil
 import numpy as np
@@ -503,6 +502,7 @@ class BrainDB:
                 f'{config["general"]["trading_symbol"]}_run.log',
             ),
             mode="a",
+            encoding="utf-8",
         )
         file_handler.setFormatter(logging_formatter)
         logger.addHandler(file_handler)

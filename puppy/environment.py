@@ -1,6 +1,6 @@
 import os
-import shutil
 import pickle
+import time
 from datetime import date
 from typing import List, Dict, Tuple, Union, Any
 from pydantic import BaseModel, ValidationError
@@ -112,13 +112,31 @@ class MarketEnvironment:
     def save_checkpoint(self, path: str, force: bool = False) -> None:
         path = os.path.join(path, "env")
         if os.path.exists(path):
-            if force:
-                shutil.rmtree(path)
-            else:
+            if not force:
                 raise FileExistsError(f"Path {path} already exists")
-        os.mkdir(path)
-        with open(os.path.join(path, "env.pkl"), "wb") as f:
-            pickle.dump(self, f)
+        else:
+            os.mkdir(path)
+
+        target_file = os.path.join(path, "env.pkl")
+        tmp_file = os.path.join(path, "env.pkl.tmp")
+
+        # On Windows, env.pkl can be briefly locked by external scanners.
+        # Retry atomic replace instead of removing the whole directory.
+        for retry in range(5):
+            try:
+                with open(tmp_file, "wb") as f:
+                    pickle.dump(self, f)
+                os.replace(tmp_file, target_file)
+                return
+            except PermissionError:
+                if os.path.exists(tmp_file):
+                    try:
+                        os.remove(tmp_file)
+                    except OSError:
+                        pass
+                if retry == 4:
+                    raise
+                time.sleep(0.2 * (retry + 1))
 
     @classmethod
     def load_checkpoint(cls, path: str) -> "MarketEnvironment":

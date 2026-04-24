@@ -6,6 +6,12 @@ This suite of Python scripts provides a comprehensive toolkit for generating *Fi
 
 **Note:** The performance of the model is highly dependent on the quality of the news data and the type of Large Language Model (LLM) used.
 
+`09_build_paper_input.py` now supports two market modes:
+- `US`: price via yfinance, news via Alpaca, filings via SEC API.
+- `VN`: price/news via `vnstock`, filings skipped.
+
+You can switch by CLI `--market` or environment variable `FINMEM_MARKET_MODE`.
+
 ### Data Acquisition Scripts
 
 1. **SEC API Data Download (`01_SEC_API_10k10q_download.py`):** 

@@ -4,7 +4,7 @@ import time
 import pickle
 import argparse
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Tuple, Optional
+from typing import Callable, Dict, List, Tuple, Optional
 
 import httpx
 import yfinance as yf
@@ -17,6 +17,141 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 ALPACA_DEFAULT_NEWS_ENDPOINT = "https://data.alpaca.markets/v1beta1/news"
 SEC_QUERY_ENDPOINT = "https://api.sec-api.io"
 SEC_EXTRACT_ENDPOINT = "https://api.sec-api.io/extractor"
+DEFAULT_MARKET_MODE = "US"
+SUPPORTED_MARKETS = {"US", "VN"}
+DEFAULT_VNSTOCK_SOURCES = ("KBS",)
+DEFAULT_VNSTOCK_NEWS_FETCH_LIMIT = 120
+DEFAULT_VNSTOCK_NEWS_PAGE_SIZE = 20
+DEFAULT_VNSTOCK_NEWS_MAX_PAGE = 20
+MAX_VNSTOCK_NEWS_FETCH_LIMIT = 2000
+MAX_KBS_NEWS_PAGE_SIZE = 20
+DEFAULT_VN_TRANSLATION_MODEL = "Helsinki-NLP/opus-mt-vi-en"
+
+
+def _strip_wrapped_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def _load_dotenv_compat() -> None:
+    # Standard dotenv first.
+    load_dotenv(override=False)
+
+    # Fallback parser for files using spacing like: KEY = "value"
+    env_candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(os.getcwd(), "..", ".env"),
+    ]
+    for env_path in env_candidates:
+        if not os.path.exists(env_path):
+            continue
+        with open(env_path, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = _strip_wrapped_quotes(value.strip())
+                if key and key not in os.environ:
+                    os.environ[key] = value
+
+
+def _resolve_market_mode(cli_market: Optional[str]) -> str:
+    value = (
+        cli_market
+        or os.environ.get("FINMEM_MARKET_MODE")
+        or os.environ.get("FINMEM_MARKET")
+        or DEFAULT_MARKET_MODE
+    )
+    market = str(value).strip().upper().replace("-", "_")
+    if market in {"US", "USA", "U.S.", "U_S"}:
+        return "US"
+    if market in {"VN", "VIETNAM", "VIET_NAM", "VNSE"}:
+        return "VN"
+    raise ValueError(
+        f"Unsupported market '{value}'. Supported values: {sorted(SUPPORTED_MARKETS)}"
+    )
+
+
+def _resolve_bool_env(var_name: str, default: bool) -> bool:
+    raw = (os.environ.get(var_name) or "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _resolve_positive_int_env(
+    var_name: str,
+    default: int,
+    minimum: int = 1,
+    maximum: Optional[int] = None,
+) -> int:
+    raw = (os.environ.get(var_name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value < minimum:
+        value = minimum
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+def _resolve_vnstock_sources() -> List[str]:
+    raw = (os.environ.get("FINMEM_VNSTOCK_SOURCE") or "").strip()
+    if raw and any(p.strip().upper() != "KBS" for p in raw.split(",") if p.strip()):
+        print(
+            "Warning: VN news pipeline supports KBS only; ignoring non-KBS FINMEM_VNSTOCK_SOURCE entries."
+        )
+    return list(DEFAULT_VNSTOCK_SOURCES)
+
+
+def _resolve_vnstock_news_fetch_limit() -> int:
+    return _resolve_positive_int_env(
+        "FINMEM_VNSTOCK_NEWS_LIMIT",
+        default=DEFAULT_VNSTOCK_NEWS_FETCH_LIMIT,
+        minimum=1,
+        maximum=MAX_VNSTOCK_NEWS_FETCH_LIMIT,
+    )
+
+
+def _resolve_vnstock_news_page_size() -> int:
+    return _resolve_positive_int_env(
+        "FINMEM_VNSTOCK_NEWS_PAGE_SIZE",
+        default=DEFAULT_VNSTOCK_NEWS_PAGE_SIZE,
+        minimum=1,
+        maximum=MAX_KBS_NEWS_PAGE_SIZE,
+    )
+
+
+def _resolve_vnstock_news_max_page() -> int:
+    return _resolve_positive_int_env(
+        "FINMEM_VNSTOCK_NEWS_MAX_PAGE",
+        default=DEFAULT_VNSTOCK_NEWS_MAX_PAGE,
+        minimum=1,
+        maximum=200,
+    )
+
+
+def _resolve_vn_news_align_window_days() -> int:
+    raw = (os.environ.get("FINMEM_VN_NEWS_ALIGN_WINDOW_DAYS") or "").strip()
+    if raw:
+        try:
+            value = int(raw)
+            if value >= 0:
+                return value
+        except ValueError:
+            pass
+    return 3
 
 
 def _normalize_text(value: str) -> str:
@@ -47,7 +182,7 @@ def _get_sec_key() -> str:
     return sec_key
 
 
-def _download_prices(symbol: str, start_day: date, end_day: date) -> Dict[date, float]:
+def _download_prices_us(symbol: str, start_day: date, end_day: date) -> Dict[date, float]:
     df = yf.download(
         symbol,
         start=start_day.strftime("%Y-%m-%d"),
@@ -82,6 +217,88 @@ def _download_prices(symbol: str, start_day: date, end_day: date) -> Dict[date, 
     return prices
 
 
+def _download_prices_vn(
+    symbol: str,
+    start_day: date,
+    end_day: date,
+    sources: List[str],
+) -> Dict[date, float]:
+    try:
+        from vnstock import Vnstock
+    except ImportError as exc:
+        raise ImportError(
+            "vnstock is required for VN market mode. Install with: pip install vnstock"
+        ) from exc
+
+    last_error: Optional[Exception] = None
+    df = None
+    for source in sources:
+        try:
+            quote = Vnstock(show_log=False).stock(symbol=symbol, source=source).quote
+            df = quote.history(
+                start=start_day.strftime("%Y-%m-%d"),
+                end=(end_day + timedelta(days=1)).strftime("%Y-%m-%d"),
+                interval="1D",
+                show_log=False,
+            )
+            if df is not None and not df.empty:
+                break
+        except Exception as exc:  # pragma: no cover - network/provider dependent
+            last_error = exc
+            continue
+
+    if df is None or df.empty:
+        if last_error is not None:
+            raise ValueError(
+                f"No VN price data downloaded for {symbol} from sources={sources}. Last error: {last_error}"
+            )
+        raise ValueError(f"No VN price data downloaded for {symbol} from sources={sources}.")
+
+    if "time" not in df.columns:
+        raise ValueError("vnstock quote.history output missing 'time' column.")
+
+    if "close" in df.columns:
+        close_col = "close"
+    elif "Close" in df.columns:
+        close_col = "Close"
+    else:
+        raise ValueError("vnstock quote.history output missing close price column.")
+
+    series = df[["time", close_col]].copy()
+    series["time"] = series["time"].apply(
+        lambda x: x.date() if isinstance(x, datetime) else date.fromisoformat(str(x)[:10])
+    )
+    series = series[(series["time"] >= start_day) & (series["time"] <= end_day)]
+
+    prices: Dict[date, float] = {}
+    for _, row in series.iterrows():
+        prices[row["time"]] = float(row[close_col])
+
+    if not prices:
+        raise ValueError(
+            f"No VN price data available for {symbol} in [{start_day}, {end_day}]"
+        )
+    return prices
+
+
+def _download_prices(
+    symbol: str,
+    start_day: date,
+    end_day: date,
+    market_mode: str,
+) -> Dict[date, float]:
+    if market_mode == "US":
+        return _download_prices_us(symbol=symbol, start_day=start_day, end_day=end_day)
+    if market_mode == "VN":
+        return _download_prices_vn(
+            symbol=symbol,
+            start_day=start_day,
+            end_day=end_day,
+            sources=_resolve_vnstock_sources(),
+        )
+    raise ValueError(f"Unsupported market mode: {market_mode}")
+
+
 def _fetch_news_for_day(
     client: httpx.Client,
     endpoint: str,
@@ -102,7 +319,15 @@ def _fetch_news_for_day(
     page_token: Optional[str] = None
 
     while True:
-        request_url = url if page_token is None else f"{endpoint}?limit=50&symbols={symbol}&page_token={page_token}"
+        request_url = (
+            url
+            if page_token is None
+            else (
+                f"{endpoint}?start={cur_day.strftime('%Y-%m-%d')}"
+                f"&end={next_day.strftime('%Y-%m-%d')}"
+                f"&limit=50&symbols={symbol}&page_token={page_token}"
+            )
+        )
         resp = client.get(request_url, headers=headers, timeout=60)
         if resp.status_code != 200:
             raise ValueError(f"Alpaca news request failed: {resp.status_code} {resp.text}")
@@ -157,10 +382,342 @@ def _download_news(
     return news_by_day
 
 
-def _append_vader_scores(news_list: List[str], analyzer: SentimentIntensityAnalyzer) -> List[str]:
+def _extract_vn_news_date(raw_value: object) -> Optional[date]:
+    if raw_value is None:
+        return None
+
+    if isinstance(raw_value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(raw_value) / 1000).date()
+        except (OverflowError, ValueError):
+            return None
+
+    text = str(raw_value).strip()
+    if not text:
+        return None
+
+    if text.isdigit():
+        try:
+            return datetime.fromtimestamp(float(text) / 1000).date()
+        except (OverflowError, ValueError):
+            return None
+
+    try:
+        return parser.parse(text).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_vn_news_text(record: Dict[str, object]) -> str:
+    candidates = [
+        record.get("news_short_content"),
+        record.get("news_title"),
+        record.get("news_sub_title"),
+        record.get("news_full_content"),
+        record.get("title"),
+        record.get("head"),
+        record.get("description"),
+        record.get("content"),
+    ]
+    for value in candidates:
+        if value:
+            text = _normalize_text(str(value))
+            if text:
+                return text
+    return ""
+
+
+def _extract_vn_news_row_date(record: Dict[str, object]) -> Optional[date]:
+    for field in (
+        "public_date",
+        "created_at",
+        "publish_time",
+        "published_at",
+        "time",
+        "date",
+    ):
+        value = _extract_vn_news_date(record.get(field))
+        if value is not None:
+            return value
+    return None
+
+
+def _align_vn_news_to_trading_day(
+    raw_day: date,
+    trading_days: List[date],
+    align_window_days: int,
+) -> Optional[date]:
+    if not trading_days:
+        return None
+
+    first_day = trading_days[0]
+    last_day = trading_days[-1]
+
+    if raw_day > last_day:
+        return None
+
+    if raw_day < first_day and (first_day - raw_day).days > align_window_days:
+        return None
+
+    for trading_day in trading_days:
+        if trading_day >= raw_day:
+            if abs((trading_day - raw_day).days) > align_window_days:
+                return None
+            return trading_day
+    return None
+
+
+def _fetch_vnstock_news_kbs_rows(
+    symbol: str,
+    fetch_limit: int,
+    page_size: int,
+) -> Tuple[List[Dict[str, object]], int]:
+    from vnstock import Company
+
+    company = Company(symbol=symbol, source="KBS")
+    all_rows: List[Dict[str, object]] = []
+    seen_keys: set[Tuple[str, str]] = set()
+    page = 1
+    pages_fetched = 0
+    max_page = _resolve_vnstock_news_max_page()
+    consecutive_empty = 0
+
+    while len(all_rows) < fetch_limit and page <= max_page:
+        request_size = min(page_size, fetch_limit - len(all_rows))
+        if request_size <= 0:
+            break
+
+        try:
+            page_df = company.news(page=page, page_size=request_size, show_log=False)
+        except TypeError:
+            page_df = company.news(page, request_size, False)
+
+        pages_fetched += 1
+
+        if page_df is None or page_df.empty:
+            consecutive_empty += 1
+            if consecutive_empty >= 2:
+                break
+            page += 1
+            continue
+
+        page_rows = page_df.to_dict("records")
+        if not page_rows:
+            consecutive_empty += 1
+            if consecutive_empty >= 2:
+                break
+            page += 1
+            continue
+
+        consecutive_empty = 0
+
+        for row in page_rows:
+            text = _extract_vn_news_text(row)
+            raw_date = _extract_vn_news_row_date(row)
+            if text or raw_date is not None:
+                key = (raw_date.isoformat() if raw_date is not None else "", text)
+            else:
+                key = ("", _normalize_text(str(sorted(row.items()))))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            all_rows.append(row)
+            if len(all_rows) >= fetch_limit:
+                break
+
+        page += 1
+
+    return all_rows[:fetch_limit], pages_fetched
+
+
+def _download_news_vn(
+    symbol: str,
+    trading_days: List[date],
+    max_news_per_day: int,
+) -> Dict[date, List[str]]:
+    try:
+        import vnstock  # noqa: F401
+    except ImportError as exc:
+        raise ImportError(
+            "vnstock is required for VN market mode. Install with: pip install vnstock"
+        ) from exc
+
+    fetch_limit = _resolve_vnstock_news_fetch_limit()
+    page_size = _resolve_vnstock_news_page_size()
+    align_window_days = _resolve_vn_news_align_window_days()
+    try:
+        raw_rows, pages_fetched = _fetch_vnstock_news_kbs_rows(
+            symbol=symbol,
+            fetch_limit=fetch_limit,
+            page_size=page_size,
+        )
+    except Exception as exc:  # pragma: no cover - network/provider dependent
+        print(
+            f"Warning: VN news fetch failed for {symbol} using source ['KBS']: {exc}"
+        )
+        return {d: [] for d in trading_days}
+
+    if not raw_rows:
+        return {d: [] for d in trading_days}
+
+    news_by_day: Dict[date, List[str]] = {d: [] for d in trading_days}
+    seen_by_day: Dict[date, set[str]] = {d: set() for d in trading_days}
+    seen_rows: set[Tuple[str, str]] = set()
+    total_assigned = 0
+    parsed_news_dates: List[date] = []
+    drop_stats = {
+        "missing_text": 0,
+        "missing_date": 0,
+        "duplicate_row": 0,
+        "outside_alignment": 0,
+        "day_cap": 0,
+    }
+
+    if max_news_per_day <= 0:
+        return news_by_day
+
+    for row in raw_rows:
+        text = _extract_vn_news_text(row)
+        if not text:
+            drop_stats["missing_text"] += 1
+            continue
+
+        candidate_date = _extract_vn_news_row_date(row)
+        if candidate_date is None:
+            drop_stats["missing_date"] += 1
+            continue
+        parsed_news_dates.append(candidate_date)
+
+        row_key = (candidate_date.isoformat(), text)
+        if row_key in seen_rows:
+            drop_stats["duplicate_row"] += 1
+            continue
+        seen_rows.add(row_key)
+
+        target_day = _align_vn_news_to_trading_day(
+            candidate_date,
+            trading_days,
+            align_window_days=align_window_days,
+        )
+        if target_day is None:
+            drop_stats["outside_alignment"] += 1
+            continue
+
+        if text in seen_by_day[target_day]:
+            drop_stats["duplicate_row"] += 1
+            continue
+
+        if len(news_by_day[target_day]) >= max_news_per_day:
+            drop_stats["day_cap"] += 1
+            continue
+
+        seen_by_day[target_day].add(text)
+        news_by_day[target_day].append(text)
+        total_assigned += 1
+
+    days_with_news = sum(1 for d in trading_days if news_by_day[d])
+    if total_assigned == 0 and parsed_news_dates:
+        print(
+            "Warning: VN news rows were fetched but none mapped to trading days. "
+            f"news_range={min(parsed_news_dates)}->{max(parsed_news_dates)}, "
+            f"trading_range={trading_days[0]}->{trading_days[-1]}, "
+            f"align_window_days={align_window_days}."
+        )
+
+    print(
+        "VN news fetched: "
+        f"source=KBS, pages={pages_fetched}, rows={len(raw_rows)}, unique_rows={len(seen_rows)}, "
+        f"assigned={total_assigned}, trading_days_with_news={days_with_news}/{len(trading_days)}, "
+        f"drops={drop_stats}"
+    )
+
+    return news_by_day
+
+
+def _build_vi_to_en_translator() -> Optional[Callable[[str], str]]:
+    if not _resolve_bool_env("FINMEM_VN_TRANSLATE_FOR_VADER", True):
+        return None
+
+    model_name = (os.environ.get("FINMEM_VN_TRANSLATION_MODEL") or DEFAULT_VN_TRANSLATION_MODEL).strip()
+    local_only = _resolve_bool_env("FINMEM_VN_TRANSLATION_LOCAL_ONLY", True)
+    max_length = _resolve_positive_int_env(
+        "FINMEM_VN_TRANSLATION_MAX_LENGTH",
+        default=256,
+        minimum=32,
+        maximum=1024,
+    )
+
+    try:
+        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
+
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            local_files_only=local_only,
+        )
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_name,
+            local_files_only=local_only,
+        )
+        translator = pipeline(
+            "translation",
+            model=model,
+            tokenizer=tokenizer,
+            device=-1,
+        )
+    except Exception as exc:  # pragma: no cover - model availability dependent
+        mode = "local-only" if local_only else "local-or-remote"
+        print(
+            f"Warning: Could not initialize VI->EN translator ({model_name}, {mode}). "
+            f"VADER will score original text. Error: {exc}"
+        )
+        return None
+
+    cache: Dict[str, str] = {}
+    warning_emitted = False
+
+    def _translate(text: str) -> str:
+        nonlocal warning_emitted
+        normalized = _normalize_text(text)
+        if not normalized:
+            return ""
+
+        cached = cache.get(normalized)
+        if cached is not None:
+            return cached
+
+        try:
+            result = translator(normalized, max_length=max_length, truncation=True)
+            translated = ""
+            if isinstance(result, list) and result:
+                translated = _normalize_text(str(result[0].get("translation_text", "")))
+            if not translated:
+                translated = normalized
+        except Exception as exc:  # pragma: no cover - model/runtime dependent
+            if not warning_emitted:
+                print(
+                    "Warning: Runtime VI->EN translation failed; falling back to original text. "
+                    f"Error: {exc}"
+                )
+                warning_emitted = True
+            translated = normalized
+
+        cache[normalized] = translated
+        return translated
+
+    return _translate
+
+
+def _append_vader_scores(
+    news_list: List[str],
+    analyzer: SentimentIntensityAnalyzer,
+    translator: Optional[Callable[[str], str]] = None,
+) -> List[str]:
     out = []
     for text in news_list:
-        scores = analyzer.polarity_scores(text)
+        score_text = translator(text) if translator is not None else text
+        if not score_text:
+            score_text = text
+        scores = analyzer.polarity_scores(score_text)
         out.append(
             f"{text} The positive score for this news is {scores['pos']}. "
             f"The neutral score for this news is {scores['neu']}. "
@@ -315,46 +872,77 @@ def build_market_input(
     start_day: date,
     end_day: date,
     output_path: str,
+    market_mode: str = DEFAULT_MARKET_MODE,
     apply_vader: bool = True,
     max_news_per_day: int = 200,
     sleep_s: float = 0.0,
 ) -> None:
-    load_dotenv()
-    sec_key = _get_sec_key()
+    _load_dotenv_compat()
+    market_mode = _resolve_market_mode(market_mode)
+    sec_key = _get_sec_key() if market_mode == "US" else ""
 
-    print("Step 1/5: Downloading price data")
-    prices = _download_prices(symbol=symbol, start_day=start_day, end_day=end_day)
-    trading_days = sorted(prices.keys())
-    print(f"Trading days: {len(trading_days)} | Range: {trading_days[0]} -> {trading_days[-1]}")
-
-    print("Step 2/5: Downloading Alpaca news")
-    news_endpoint = os.environ.get("ALPACA_NEWS_ENDPOINT", ALPACA_DEFAULT_NEWS_ENDPOINT).rstrip("/")
-    headers = _build_news_headers()
-    news_by_day = _download_news(
-        symbol=symbol,
-        trading_days=trading_days,
-        endpoint=news_endpoint,
-        headers=headers,
-        max_news_per_day=max_news_per_day,
-        sleep_s=sleep_s,
-    )
-
-    if apply_vader:
-        print("Step 3/5: Appending VADER sentiment to news")
-        analyzer = SentimentIntensityAnalyzer()
-        for d in trading_days:
-            news_by_day[d] = _append_vader_scores(news_by_day.get(d, []), analyzer)
-    else:
-        print("Step 3/5: Skipped sentiment augmentation")
-
-    print("Step 4/5: Downloading SEC filings (10-K Item 7, 10-Q part1item2)")
-    filing_k_map, filing_q_map = _build_filing_maps(
+    print(f"Step 1/5: Downloading price data (market={market_mode})")
+    prices = _download_prices(
         symbol=symbol,
         start_day=start_day,
         end_day=end_day,
-        trading_days=trading_days,
-        sec_key=sec_key,
+        market_mode=market_mode,
     )
+    trading_days = sorted(prices.keys())
+    print(f"Trading days: {len(trading_days)} | Range: {trading_days[0]} -> {trading_days[-1]}")
+
+    if market_mode == "US":
+        print("Step 2/5: Downloading Alpaca news")
+        news_endpoint = os.environ.get("ALPACA_NEWS_ENDPOINT", ALPACA_DEFAULT_NEWS_ENDPOINT).rstrip("/")
+        headers = _build_news_headers()
+        news_by_day = _download_news(
+            symbol=symbol,
+            trading_days=trading_days,
+            endpoint=news_endpoint,
+            headers=headers,
+            max_news_per_day=max_news_per_day,
+            sleep_s=sleep_s,
+        )
+    else:
+        print("Step 2/5: Downloading VN company news via vnstock")
+        news_by_day = _download_news_vn(
+            symbol=symbol,
+            trading_days=trading_days,
+            max_news_per_day=max_news_per_day,
+        )
+
+    if apply_vader:
+        translator: Optional[Callable[[str], str]] = None
+        if market_mode == "VN":
+            print("Step 3/5: Translating VN news to English and appending VADER sentiment")
+            translator = _build_vi_to_en_translator()
+            if translator is None:
+                print("Warning: VN translation unavailable/disabled; scoring original VN text with VADER.")
+        else:
+            print("Step 3/5: Appending VADER sentiment to news")
+
+        analyzer = SentimentIntensityAnalyzer()
+        for d in trading_days:
+            news_by_day[d] = _append_vader_scores(
+                news_by_day.get(d, []),
+                analyzer,
+                translator=translator,
+            )
+    else:
+        print("Step 3/5: Skipped sentiment augmentation")
+
+    if market_mode == "US":
+        print("Step 4/5: Downloading SEC filings (10-K Item 7, 10-Q part1item2)")
+        filing_k_map, filing_q_map = _build_filing_maps(
+            symbol=symbol,
+            start_day=start_day,
+            end_day=end_day,
+            trading_days=trading_days,
+            sec_key=sec_key,
+        )
+    else:
+        print("Step 4/5: Skipping SEC filings for VN market")
+        filing_k_map, filing_q_map = {}, {}
 
     print("Step 5/5: Building runtime env_data dictionary")
     env_data: Dict[date, Dict[str, Dict[str, object]]] = {}
@@ -386,6 +974,11 @@ if __name__ == "__main__":
         "--symbol",
         default=os.environ.get("FINMEM_TRADING_SYMBOL", "TSLA"),
         help="Ticker symbol (for example TSLA, AAPL)",
+    )
+    arg_parser.add_argument(
+        "--market",
+        default=os.environ.get("FINMEM_MARKET_MODE") or os.environ.get("FINMEM_MARKET") or DEFAULT_MARKET_MODE,
+        help="Market mode: US or VN. Environment fallback: FINMEM_MARKET_MODE / FINMEM_MARKET",
     )
     arg_parser.add_argument(
         "--start",
@@ -430,6 +1023,7 @@ if __name__ == "__main__":
         start_day=date.fromisoformat(args.start),
         end_day=date.fromisoformat(args.end),
         output_path=output_path,
+        market_mode=args.market,
         apply_vader=not args.disable_vader,
         max_news_per_day=args.max_news_per_day,
         sleep_s=args.sleep_seconds,

@@ -34,7 +34,19 @@ train_prompt = """Given the following information, can you explain to me why the
     ${investment_info}
 
     ${gr.complete_json_suffix_v2}
-    Your output should strictly conforms the following json format without any additional contents: {"summary_reason": string, "short_memory_index": number, "middle_memory_index": number, "long_memory_index": number, "reflection_memory_index": number}
+        Your output should strictly conform to this JSON format and contain no additional text:
+        {
+            "summary_reason": string,
+            "short_memory_index": [{"memory_index": integer}],
+            "middle_memory_index": [{"memory_index": integer}],
+            "long_memory_index": [{"memory_index": integer}],
+            "reflection_memory_index": [{"memory_index": integer}]
+        }
+        IMPORTANT:
+        - For each memory layer, return a LIST of OBJECTS.
+        - Each object must contain exactly one integer field named "memory_index".
+        - Do NOT return memory_index as an array (e.g., [1,2,3]) and do NOT return None.
+        - If no valid support exists for a layer, use [{"memory_index": -1}] for that layer.
 """
 # When cumulative return is positive or zero, you are a risk-seeking investor, positive information have a greater influence on your investment decisions, while negative information have a lesser impact.
 # But when cumulative return is negative, you are a risk-averse investor, negative information have a greater influence on your investment decisions, while positive information have a lesser impact.
@@ -50,4 +62,18 @@ test_prompt = """ Given the information, can you make an investment decision? Ju
     ${investment_info}
 
     ${gr.complete_json_suffix_v2}
+        Your output should strictly conform to this JSON format and contain no additional text:
+        {
+            "investment_decision": "buy" | "sell" | "hold",
+            "summary_reason": string,
+            "short_memory_index": [{"memory_index": integer}],
+            "middle_memory_index": [{"memory_index": integer}],
+            "long_memory_index": [{"memory_index": integer}],
+            "reflection_memory_index": [{"memory_index": integer}]
+        }
+        IMPORTANT:
+        - For each memory layer, return a LIST of OBJECTS.
+        - Each object must contain exactly one integer field named "memory_index".
+        - Do NOT return memory_index as an array (e.g., [1,2,3]) and do NOT return None.
+        - If no valid support exists for a layer, use [{"memory_index": -1}] for that layer.
 """

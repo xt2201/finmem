@@ -33,7 +33,7 @@ dates = portfolio.date_series
 price_list = prices_array.tolist() if hasattr(prices_array, 'tolist') else list(prices_array)
 
 # For day i, the action applied to the return from day i to i+1 is action_list[i]
-action_list = [actions_dict.get(d, 0) for d in dates]
+action_list = [actions_dict.get(d, 0) for d in dates[:-1]]
 
 # 1. FinMem Metrics
 finmem_daily_rewards = metrics.daily_reward(price_list, action_list)
@@ -41,19 +41,29 @@ finmem_std_dev = metrics.standard_deviation(finmem_daily_rewards) if len(finmem_
 finmem_total_reward = metrics.total_reward(price_list, action_list)
 finmem_ann_vol = metrics.annualized_volatility(finmem_std_dev)
 try:
-    finmem_sharpe = metrics.calculate_sharpe_ratio(finmem_total_reward, 0.0, finmem_std_dev, price_list) if finmem_std_dev > 0 else 0
+    finmem_sharpe = metrics.calculate_sharpe_ratio(
+        finmem_total_reward,
+        0.0,
+        finmem_ann_vol,
+        max(0, len(price_list) - 1),
+    ) if finmem_ann_vol > 0 else 0
 except:
     finmem_sharpe = 0
 finmem_mdd = metrics.calculate_max_drawdown(finmem_daily_rewards)
 
 # 2. Buy & Hold Metrics
-bh_action_list = [1] * len(price_list)
+bh_action_list = [1] * max(0, len(price_list) - 1)
 bh_daily_rewards = metrics.daily_reward(price_list, bh_action_list)
 bh_std_dev = metrics.standard_deviation(bh_daily_rewards) if len(bh_daily_rewards) > 1 else 0
 bh_total_reward = metrics.total_reward(price_list, bh_action_list)
 bh_ann_vol = metrics.annualized_volatility(bh_std_dev)
 try:
-    bh_sharpe = metrics.calculate_sharpe_ratio(bh_total_reward, 0.0, bh_std_dev, price_list) if bh_std_dev > 0 else 0
+    bh_sharpe = metrics.calculate_sharpe_ratio(
+        bh_total_reward,
+        0.0,
+        bh_ann_vol,
+        max(0, len(price_list) - 1),
+    ) if bh_ann_vol > 0 else 0
 except:
     bh_sharpe = 0
 bh_mdd = metrics.calculate_max_drawdown(bh_daily_rewards)
@@ -63,10 +73,12 @@ print(f"Period: {dates[0]} to {dates[-1]}")
 print(f"Trading Days: {len(dates)}\n")
 
 print("--- Daily Logs ---")
-for i, d in enumerate(dates):
+for i, d in enumerate(dates[:-1]):
     a = action_list[i]
     act_str = "BUY" if a == 1 else ("SELL" if a == -1 else "HOLD")
     print(f"{d}: Price={price_list[i]:.2f} | Action={act_str}")
+if dates:
+    print(f"{dates[-1]}: Price={price_list[-1]:.2f} | Action=N/A (terminal day)")
 
 print("\n--- [FinMem] ---")
 print(f"Total Cumulative Reward : {finmem_total_reward:.4f} ({(np.exp(finmem_total_reward)-1)*100:.2f}%)")

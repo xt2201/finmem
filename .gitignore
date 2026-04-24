@@ -176,11 +176,11 @@ tests/outputs
 __MACOSX/
 
 # Generated simulation outputs and checkpoints
-data/05_train_model_output/
-data/06_train_checkpoint/
-data/07_test_model_output/
-data/08_test_checkpoint/
-data/09_results/
+data/05_train_model_output*/
+data/06_train_checkpoint*/
+data/07_test_model_output*/
+data/08_test_checkpoint*/
+data/09_results*/
 
 # Data files
 *.pdf

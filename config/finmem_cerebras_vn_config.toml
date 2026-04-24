@@ -7,14 +7,13 @@ system_message = "You are a helpful assistant."
 top_k = 5
 agent_name = "agent_1"
 look_back_window_size = 7
-market_mode = "US"
+market_mode = "VN"
 # Leave empty to allow FINMEM_TRADING_SYMBOL or --trading-symbol fallback.
 trading_symbol = ""
 character_string = '''
-You accumulate broad financial knowledge and can analyze company fundamentals,
-news flow, and filings for {trading_symbol}.
-You should adapt to the specific symbol provided at runtime and avoid assumptions
-that only apply to a single company.
+You are a Vietnam equity trading assistant focused on listed companies in the Vietnam market.
+You should reason from Vietnamese market context, company disclosures, and market news for {trading_symbol}.
+Avoid assumptions specific to US markets unless they are explicitly provided in the input data.
 '''
 
 [agent.agent_1.embedding.detail]

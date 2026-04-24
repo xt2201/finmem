@@ -28,6 +28,113 @@ from .prompts import (
 )
 
 
+_INVALID_REFLECTION_TEXT_MARKERS = (
+    "json does not match schema",
+    "output is not parseable as json",
+    "validation failed",
+)
+
+
+def _is_invalid_reflection_text(text: Any) -> bool:
+    if text is None:
+        return True
+    text_s = str(text).strip()
+    if not text_s:
+        return True
+    lowered = text_s.lower()
+    if lowered in {"none", "null", "nan"}:
+        return True
+    return any(marker in lowered for marker in _INVALID_REFLECTION_TEXT_MARKERS)
+
+
+def _sanitize_memory_layer(
+    memory: Union[List[str], None],
+    memory_id: Union[List[int], None],
+) -> Tuple[List[str], List[int]]:
+    if not memory or not memory_id:
+        return [], []
+
+    ret_mem: List[str] = []
+    ret_ids: List[int] = []
+    for cur_id, cur_text in zip(memory_id, memory):
+        if _is_invalid_reflection_text(cur_text):
+            continue
+        try:
+            cur_id_int = int(cur_id)
+        except Exception:
+            continue
+        ret_mem.append(str(cur_text).strip())
+        ret_ids.append(cur_id_int)
+    return ret_mem, ret_ids
+
+
+def _has_real_memory(memory_ids: List[int]) -> bool:
+    return any(i != -1 for i in memory_ids)
+
+
+def _build_fallback_result(
+    run_mode: RunMode,
+    future_record: Union[Dict[str, float | str], float, int, None],
+    momentum: Union[int, None],
+) -> Dict[str, Any]:
+    if run_mode == RunMode.Train:
+        if isinstance(future_record, (int, float)):
+            if future_record > 0:
+                summary = (
+                    "Observed next-day move is positive; available memory evidence is limited, "
+                    "so this reflection uses realized price movement as the primary signal."
+                )
+            elif future_record < 0:
+                summary = (
+                    "Observed next-day move is negative; available memory evidence is limited, "
+                    "so this reflection uses realized price movement as the primary signal."
+                )
+            else:
+                summary = (
+                    "Observed next-day move is neutral; available memory evidence is limited, "
+                    "so this reflection remains neutral."
+                )
+        else:
+            summary = (
+                "Available memory evidence is limited for this date; reflection is kept conservative."
+            )
+        return {
+            "summary_reason": summary,
+            "short_memory_index": None,
+            "middle_memory_index": None,
+            "long_memory_index": None,
+            "reflection_memory_index": None,
+        }
+
+    if momentum == 1:
+        decision = "buy"
+        summary = (
+            "Momentum over recent days is positive while memory evidence is limited; "
+            "a cautious momentum-following buy is selected."
+        )
+    elif momentum == -1:
+        decision = "sell"
+        summary = (
+            "Momentum over recent days is negative while memory evidence is limited; "
+            "a cautious risk-reducing sell is selected."
+        )
+    else:
+        decision = "hold"
+        summary = (
+            "Memory evidence is limited and momentum is not directional enough; "
+            "hold is selected conservatively."
+        )
+
+    return {
+        "investment_decision": decision,
+        "summary_reason": summary,
+        "short_memory_index": None,
+        "middle_memory_index": None,
+        "long_memory_index": None,
+        "reflection_memory_index": None,
+    }
+
+
 def _train_memory_factory(memory_layer: str, id_list: List[int]):
     class Memory(BaseModel):
         memory_index: int = Field(
@@ -46,7 +153,7 @@ def _test_memory_factory(memory_layer: str, id_list: List[int]):
         memory_index: int = Field(
             ...,
             description=test_memory_id_extract_prompt.format(memory_layer=memory_layer),
-            validators=[ValidChoices(id_list)],  # type: ignore
+            validators=[ValidChoices(id_list, on_fail="reask")],  # type: ignore
         )
 
     return Memory
@@ -108,7 +215,7 @@ def _test_reflection_factory(
         investment_decision: str = Field(
             ...,
             description=test_invest_action_choice,
-            validators=[ValidChoices(choices=["buy", "sell", "hold"])],  # type: ignore
+            validators=[ValidChoices(choices=["buy", "sell", "hold"], on_fail="reask")],  # type: ignore
         )
         summary_reason: str = Field(
             ...,
@@ -157,6 +264,13 @@ def _format_memories(
     List[str],
     List[int],
 ]:
+    short_memory, short_memory_id = _sanitize_memory_layer(short_memory, short_memory_id)
+    mid_memory, mid_memory_id = _sanitize_memory_layer(mid_memory, mid_memory_id)
+    long_memory, long_memory_id = _sanitize_memory_layer(long_memory, long_memory_id)
+    reflection_memory, reflection_memory_id = _sanitize_memory_layer(
+        reflection_memory, reflection_memory_id
+    )
+
     # add placeholder information if not memory is available
     # each memory has a duplicate because guardrails::ValidChoices does not support single choice
     if (short_memory is None) or len(short_memory) == 0:
@@ -389,6 +503,22 @@ def trading_reflection(
         reflection_memory_id=reflection_memory_id,
     )
 
+    has_external_memory = (
+        _has_real_memory(short_memory_id)
+        or _has_real_memory(mid_memory_id)
+        or _has_real_memory(long_memory_id)
+    )
+
+    if not has_external_memory:
+        logger.info(
+            "No usable short/mid/long memories after sanitization; using deterministic fallback reflection."
+        )
+        return _build_fallback_result(
+            run_mode=run_mode,
+            future_record=future_record,
+            momentum=momentum,
+        )
+
     if run_mode == RunMode.Train:
         response_model, investment_info = _train_response_model_invest_info(
             cur_date=cur_date,
@@ -440,28 +570,22 @@ def trading_reflection(
         if (validated_outcomes.validated_output is None) or (
             not isinstance(validated_outcomes.validated_output, dict)
         ):
-            logger.info(f"reflection failed for {symbol}")
-            # Safely extract error message from the validation outcome
-            try:
-                err_msg = (
-                    validated_outcomes.__dict__.get('reask', {}) or {}
-                )
-                if hasattr(err_msg, '__dict__'):
-                    fail_results = err_msg.__dict__.get('fail_results', [])
-                    err_msg = fail_results[0].__dict__.get('error_message', 'validation failed') if fail_results else 'validation failed'
-                else:
-                    err_msg = str(getattr(validated_outcomes, 'error', 'validation failed'))
-            except Exception:
-                err_msg = 'validation failed'
-            if run_mode == RunMode.Train:
-                return {"summary_reason": err_msg, "short_memory_index": None, "middle_memory_index": None, "long_memory_index": None, "reflection_memory_index": None}
-            else:
-                return {"investment_decision": "hold", "summary_reason": err_msg, "short_memory_index": None, "middle_memory_index": None, "long_memory_index": None, "reflection_memory_index": None}
+            logger.warning(
+                f"reflection validation failed for {symbol}; using deterministic fallback output"
+            )
+            return _build_fallback_result(
+                run_mode=run_mode,
+                future_record=future_record,
+                momentum=momentum,
+            )
         return _delete_placeholder_info(validated_outcomes.validated_output)
 
     except Exception as e:
         if isinstance(e.__context__, LongerThanContextError):
             raise LongerThanContextError from e
-        logger.info("Wrong again!!!!!")
-        logger.error(e)
-        return _delete_placeholder_info({})
+        logger.error(f"Reflection guard execution failed for {symbol}: {e}")
+        return _build_fallback_result(
+            run_mode=run_mode,
+            future_record=future_record,
+            momentum=momentum,
+        )

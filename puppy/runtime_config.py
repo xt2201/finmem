@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 
 DEFAULT_TRADING_SYMBOL = "TSLA"
+DEFAULT_MARKET_MODE = "US"
 
 
 def _clean_optional(value: Any) -> Optional[str]:
@@ -31,6 +32,37 @@ def resolve_trading_symbol(
 
     resolved = config_symbol or env_symbol or cli_clean or default_symbol
     return resolved.upper()
+
+
+def normalize_market_mode(value: Optional[str]) -> str:
+    clean = _clean_optional(value)
+    if not clean:
+        return DEFAULT_MARKET_MODE
+
+    normalized = clean.strip().upper().replace("-", "_")
+    if normalized in {"US", "USA", "U.S.", "U_S"}:
+        return "US"
+    if normalized in {"VN", "VNSE", "VIETNAM", "VIET_NAM"}:
+        return "VN"
+    raise ValueError(
+        f"Unsupported market mode '{value}'. Supported values: US, VN."
+    )
+
+
+def resolve_market_mode(
+    config: Optional[Dict[str, Any]] = None,
+    cli_market_mode: Optional[str] = None,
+    default_market_mode: str = DEFAULT_MARKET_MODE,
+) -> str:
+    general = config.get("general", {}) if isinstance(config, dict) else {}
+    config_market = _clean_optional(general.get("market_mode") or general.get("market"))
+    env_market = _clean_optional(
+        os.environ.get("FINMEM_MARKET_MODE") or os.environ.get("FINMEM_MARKET")
+    )
+    cli_clean = _clean_optional(cli_market_mode)
+
+    resolved = config_market or env_market or cli_clean or default_market_mode
+    return normalize_market_mode(resolved)
 
 
 def expand_symbol_template(text: str, symbol: str) -> str:
