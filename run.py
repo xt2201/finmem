@@ -73,7 +73,7 @@ _load_dotenv_compat()
 app = typer.Typer(name="puppy")
 warnings.filterwarnings("ignore")
 
-DEFAULT_CONFIG_PATH = os.path.join("config", "finmem_cerebras_config.toml")
+DEFAULT_CONFIG_PATH = os.path.join("config", "finmem_openrouter_config.toml")
 
 
 def _default_market_data_path(symbol: str) -> str:
@@ -91,23 +91,42 @@ def _ensure_cerebras_provider_for_vn(
     chat = config.get("chat", {}) if isinstance(config, dict) else {}
     if not isinstance(chat, dict):
         raise ValueError(
-            f"Invalid chat config in {config_path}. VN mode requires a valid Cerebras chat configuration."
+            f"Invalid chat config in {config_path}. VN mode requires a valid chat configuration."
         )
 
     model = str(chat.get("model", "")).strip().lower()
     endpoint = str(chat.get("end_point", "")).strip().lower()
     openai_compatible = bool(chat.get("openai_compatible", False))
 
+    if openai_compatible and "openrouter.ai" in endpoint:
+        cfg_key = chat.get("api_key")
+        has_cfg = bool(
+            cfg_key
+            and str(cfg_key).strip()
+            not in ("", "EMPTY", "-", "Enter your OpenAI API Key here")
+        )
+        if not (
+            has_cfg
+            or os.environ.get("OPENROUTER_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+        ):
+            raise ValueError(
+                "VN mode with OpenRouter requires OPENROUTER_API_KEY, OPENAI_API_KEY, "
+                f"or a non-placeholder chat.api_key in {config_path}."
+            )
+        return
+
     if openai_compatible or model.startswith("gemini-pro") or model.startswith("tgi"):
         raise ValueError(
-            "VN mode requires Cerebras provider only. "
-            "Use config/finmem_cerebras_vn_config.toml or another Cerebras config "
-            "(openai_compatible=false, model not gemini-pro/tgi)."
+            "VN mode requires Cerebras, or OpenRouter "
+            "(openai_compatible=true, end_point host openrouter.ai). "
+            "Use config/finmem_cerebras_vn_config.toml or config/finmem_openrouter_vn_config.toml."
         )
 
     if endpoint and "api.cerebras.ai" not in endpoint:
         raise ValueError(
-            "VN mode requires a Cerebras endpoint (https://api.cerebras.ai/...). "
+            "VN mode requires a Cerebras endpoint (https://api.cerebras.ai/...), "
+            "or OpenRouter (finmem_openrouter_vn_config.toml). "
             f"Current endpoint in {config_path}: {chat.get('end_point')}"
         )
 

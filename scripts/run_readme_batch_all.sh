@@ -2,6 +2,9 @@
 # Chạy đủ pipeline README cho US: NFLX, AMZN, MSFT và VN: BID, MBB, FPT
 # (build dữ liệu nếu thiếu → run_paper_eval: train + test + RL + metrics + plot).
 #
+# Build và eval cho từng mã chạy SONG SONG (6 tiến trình / phase). Cần đủ RAM/VRAM;
+# giảm tải: chỉnh script hoặc tạm export CUDA_VISIBLE_DEVICES trống cho một phần job.
+#
 # Tùy chọn môi trường:
 #   FORCE_REBUILD=1  — luôn chạy lại 09_build_paper_input.py (tốn API).
 #   SKIP_BUILD=1     — bỏ qua bước build, chỉ chạy eval (cần pickle sẵn).
@@ -11,6 +14,7 @@ set -euo pipefail
 THIS="${BASH_SOURCE[0]:-$0}"
 ROOT="$(cd "$(dirname "$THIS")/.." && pwd)"
 cd "$ROOT"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
 PY="${ROOT}/.venv/bin/python"
 if [ ! -x "$PY" ]; then
@@ -26,6 +30,16 @@ fi
 
 US_START="2021-08-17"
 US_END="2023-04-10"
+
+wait_pids_or_fail() {
+  local ec=0 pid
+  for pid in "$@"; do
+    if ! wait "$pid"; then
+      ec=1
+    fi
+  done
+  return "$ec"
+}
 
 build_us() {
   local sym="$1"
@@ -81,22 +95,31 @@ eval_vn() {
     bash "${ROOT}/scripts/run_isolated_paper_eval.sh"
 }
 
-echo "===== Bước 1 (README): Build market input data ====="
-build_us NFLX
-build_us AMZN
-build_us MSFT
+echo "===== Bước 1 (README): Build market input data (song song) ====="
+bpids=()
+build_us NFLX & bpids+=($!)
+build_us AMZN & bpids+=($!)
+build_us MSFT & bpids+=($!)
 # BID 04-05/2025; MBB 07-08/2025; FPT 05-06/2025
-build_vn BID "2025-04-01" "2025-05-31"
-build_vn MBB "2025-07-01" "2025-08-31"
-build_vn FPT "2025-05-01" "2025-06-30"
+build_vn BID "2025-04-01" "2025-05-31" & bpids+=($!)
+build_vn MBB "2025-07-01" "2025-08-31" & bpids+=($!)
+build_vn FPT "2025-05-01" "2025-06-30" & bpids+=($!)
+if ! wait_pids_or_fail "${bpids[@]}"; then
+  echo "Lỗi: ít nhất một job build thất bại." >&2
+  exit 1
+fi
 
-echo "===== Bước 2–4 (README): Train, test, RL, metrics, visualize (từng mã) ====="
-eval_us NFLX
-eval_us AMZN
-eval_us MSFT
-
-eval_vn BID "2025-04" "2025-05"
-eval_vn MBB "2025-07" "2025-08"
-eval_vn FPT "2025-05" "2025-06"
+echo "===== Bước 2–4 (README): Train, test, RL, metrics, visualize (song song) ====="
+epids=()
+eval_us NFLX & epids+=($!)
+eval_us AMZN & epids+=($!)
+eval_us MSFT & epids+=($!)
+eval_vn BID "2025-04" "2025-05" & epids+=($!)
+eval_vn MBB "2025-07" "2025-08" & epids+=($!)
+eval_vn FPT "2025-05" "2025-06" & epids+=($!)
+if ! wait_pids_or_fail "${epids[@]}"; then
+  echo "Lỗi: ít nhất một job eval thất bại." >&2
+  exit 1
+fi
 
 echo "===== Hoàn tất 6 mã. Kết quả: data/09_results_<ticker>/ ====="

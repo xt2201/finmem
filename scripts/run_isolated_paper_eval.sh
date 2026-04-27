@@ -34,9 +34,9 @@ SUF="_${SYMBOL_LC}"
 
 if [ -z "${CONFIG_PATH:-}" ]; then
   if [ "$MARKET_MODE_UC" = "VN" ]; then
-    CONFIG_PATH="config/finmem_cerebras_vn_config.toml"
+    CONFIG_PATH="config/finmem_openrouter_vn_config.toml"
   else
-    CONFIG_PATH="config/finmem_cerebras_config.toml"
+    CONFIG_PATH="config/finmem_openrouter_config.toml"
   fi
 fi
 export CONFIG_PATH

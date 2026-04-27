@@ -24,9 +24,9 @@ export FINMEM_TRADING_SYMBOL="${FINMEM_TRADING_SYMBOL:-$SYMBOL}"
 MARKET_DATA_PATH="${MARKET_DATA_PATH:-data/03_model_input/${SYMBOL_LC}.pkl}"
 if [ -z "${CONFIG_PATH:-}" ]; then
   if [ "$MARKET_MODE_UC" = "VN" ]; then
-    CONFIG_PATH="config/finmem_cerebras_vn_config.toml"
+    CONFIG_PATH="config/finmem_openrouter_vn_config.toml"
   else
-    CONFIG_PATH="config/finmem_cerebras_config.toml"
+    CONFIG_PATH="config/finmem_openrouter_config.toml"
   fi
 fi
 TRAIN_CHECKPOINT="${TRAIN_CHECKPOINT:-data/06_train_checkpoint}"

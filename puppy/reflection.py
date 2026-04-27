@@ -2,6 +2,7 @@
 from rich import print
 import logging
 import guardrails as gd
+from guardrails.utils.constants import substitute_constants
 from datetime import date
 from .run_type import RunMode
 from pydantic import BaseModel, Field
@@ -550,22 +551,28 @@ def trading_reflection(
         )
         cur_prompt = test_prompt
 
-    # prompt + validated output
-    guard = gd.Guard.from_pydantic(
-        output_class=response_model, prompt=cur_prompt, num_reasks=1
-    )
+    # guardrails >=0.6: no `prompt=` on for_pydantic; pass messages at call time.
+    prompt_body = substitute_constants(cur_prompt)
+    guard = gd.Guard.for_pydantic(output_class=response_model, num_reasks=1)
 
     try:
-        # , validated_output
         validated_outcomes = guard(
             endpoint_func,
             prompt_params={"investment_info": investment_info},
+            messages=[{"role": "user", "content": prompt_body}],
+            num_reasks=1,
         )
         logger.info("Guardrails Raw LLM Outputs")
-        for i, o in enumerate(guard.history[0].raw_outputs):
-            logger.info(f"Reask {i}")
-            logger.info(o)
-            logger.info("\n\n")
+        try:
+            last_call = guard.history.last if guard.history.length > 0 else None
+            if last_call is not None:
+                for i, o in enumerate(last_call.raw_outputs):
+                    if o is not None:
+                        logger.info(f"Reask {i}")
+                        logger.info(o)
+                        logger.info("\n\n")
+        except Exception:  # pragma: no cover - history shape varies by version
+            pass
         # print(guard.history.last.tree)
         if (validated_outcomes.validated_output is None) or (
             not isinstance(validated_outcomes.validated_output, dict)

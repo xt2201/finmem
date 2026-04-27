@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from typing import List, Union
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 
 class HuggingFaceEmb:

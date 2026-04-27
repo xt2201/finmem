@@ -166,6 +166,8 @@ awscliv2.zip
 weights/
 tgi_scripts/data/
 .env
+.env.work
+.env.linh
 .venv
 __pycache__
 tests/outputs
@@ -189,6 +191,10 @@ data/09_results*/
 
 data/10_short_eval/
 data/04_model_output_log/
+
+# Local batch runner (do not commit)
+data/readme_batch.pid
+data/readme_batch_all.log
 
 # Explicitly track essential model input files
 !data/03_model_input/tsla.pkl

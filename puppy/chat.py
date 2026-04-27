@@ -4,7 +4,7 @@ import json
 import time
 import subprocess
 from abc import ABC
-from typing import Callable, Union, Dict, Any
+from typing import Any, Callable, Dict, List, Optional, Union
 
 ### when use tgi model
 api_key = '-' 
@@ -53,15 +53,39 @@ class ChatOpenAICompatible(ABC):
         self.end_point = end_point
         self.model = model
         self.system_message = system_message
-        self.other_parameters = {} if other_parameters is None else other_parameters
+        self.other_parameters = (
+            {} if other_parameters is None else dict(other_parameters)
+        )
         self.openai_compatible = bool(
             self.other_parameters.get("openai_compatible", False)
         )
-        self.api_key = str(self.other_parameters.get("api_key", api_key))
+        cfg_raw = self.other_parameters.get("api_key")
+        cfg_key = str(cfg_raw) if cfg_raw is not None else None
+
+        def _placeholder(k: Optional[str]) -> bool:
+            if k is None:
+                return True
+            s = k.strip()
+            return (
+                not s
+                or s in ("-", "EMPTY")
+                or "enter your" in s.lower()
+            )
+
+        if self.openai_compatible:
+            self.api_key = (
+                os.environ.get("OPENROUTER_API_KEY")
+                or os.environ.get("OPENAI_API_KEY")
+                or (cfg_key if not _placeholder(cfg_key) else "")
+                or os.environ.get("CEREBRAS_API_KEY", "-")
+            )
+        else:
+            self.api_key = (
+                cfg_key if not _placeholder(cfg_key) else api_key
+            )
         if self.openai_compatible and self.end_point.rstrip("/").endswith("/v1"):
             self.end_point = f"{self.end_point.rstrip('/')}/chat/completions"
-        
-        
+
         if self.model.startswith("gemini-pro"):
             proc_result = subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True, text=True)
             access_token = proc_result.stdout.strip()
@@ -77,6 +101,11 @@ class ChatOpenAICompatible(ABC):
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
+        if self.openai_compatible and "openrouter.ai" in self.end_point.lower():
+            self.headers["HTTP-Referer"] = os.environ.get(
+                "OPENROUTER_HTTP_REFERER", "http://localhost"
+            )
+            self.headers["X-Title"] = os.environ.get("OPENROUTER_APP_NAME", "FinMem")
 
     def parse_response(self, response: httpx.Response) -> str:
         if self.openai_compatible or self.model.startswith("gpt"):
@@ -107,14 +136,39 @@ class ChatOpenAICompatible(ABC):
         )
 
     def guardrail_endpoint(self) -> Callable:
-        def end_point(input: str, **kwargs) -> str:
-            input_str = [
-                {
-                    "role": "system",
-                    "content": f"{self.system_message}\nYou are only capable of communicating with valid JSON, and no other text.",
-                },
-                {"role": "user", "content": f"{input}"},
-            ]
+        json_system_suffix = (
+            f"{self.system_message}\nYou are only capable of communicating with valid JSON, "
+            "and no other text."
+        )
+
+        def end_point(
+            *args: Any,
+            prompt: Optional[str] = None,
+            input: Optional[str] = None,
+            messages: Optional[List[Dict[str, str]]] = None,
+            _instructions: Optional[str] = None,
+            **kwargs: Any,
+        ) -> str:
+            # guardrails 0.6+ calls custom LLMs with messages=... (Runner.call).
+            if messages:
+                input_str = [dict(m) for m in messages]
+                if not any(m.get("role") == "system" for m in input_str):
+                    input_str.insert(
+                        0,
+                        {"role": "system", "content": json_system_suffix},
+                    )
+            else:
+                user_content: Optional[str] = prompt if prompt is not None else input
+                if user_content is None and args:
+                    user_content = str(args[0])
+                if user_content is None:
+                    raise ValueError(
+                        "LLM guard endpoint needs messages=, prompt=, input=, or a positional prompt."
+                    )
+                input_str = [
+                    {"role": "system", "content": json_system_suffix},
+                    {"role": "user", "content": user_content},
+                ]
             
             # For custom OpenAI-compatible endpoints, use the configured model only.
             # For default Cerebras flow, keep fallback models for resilience.
@@ -182,8 +236,9 @@ class ChatOpenAICompatible(ABC):
                                 "model": model_name,
                                 "messages": input_str,
                                 "temperature": self.other_parameters.get("temperature", 0.2),
-                                "response_format": {"type": "json_object"},
                             }
+                            if self.other_parameters.get("json_response_format", True):
+                                payload["response_format"] = {"type": "json_object"}
                             if "max_tokens" in self.other_parameters:
                                 payload["max_tokens"] = self.other_parameters["max_tokens"]
                             if "top_p" in self.other_parameters:

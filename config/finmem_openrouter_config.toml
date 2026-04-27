@@ -1,0 +1,53 @@
+[chat]
+# OpenRouter (OpenAI-compatible). Key: OPENROUTER_API_KEY or OPENAI_API_KEY in .env
+end_point = "https://openrouter.ai/api/v1"
+model = "deepseek/deepseek-v4-flash"
+system_message = "You are a helpful assistant."
+openai_compatible = true
+api_key = "EMPTY"
+temperature = 0.2
+max_tokens = 2048
+# Set false if the model rejects response_format json_object
+json_response_format = true
+
+[general]
+top_k = 5
+agent_name = "agent_1"
+look_back_window_size = 7
+market_mode = "US"
+trading_symbol = ""
+character_string = '''
+You accumulate broad financial knowledge and can analyze company fundamentals,
+news flow, and filings for {trading_symbol}.
+You should adapt to the specific symbol provided at runtime and avoid assumptions
+that only apply to a single company.
+'''
+
+[agent.agent_1.embedding.detail]
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+chunk_size = 5000
+verbose = false
+
+[short]
+importance_score_initialization = "sample"
+decay_params = {recency_factor=3.0, importance_factor=0.92}
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}
+jump_threshold_upper = 60
+
+[mid]
+jump_threshold_lower = 60
+jump_threshold_upper = 80
+importance_score_initialization = "sample"
+decay_params = {recency_factor=90.0, importance_factor=0.967}
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}
+
+[long]
+jump_threshold_lower = 80
+importance_score_initialization = "sample"
+decay_params = {recency_factor=365.0, importance_factor=0.988}
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}
+
+[reflection]
+importance_score_initialization = "sample"
+decay_params = {recency_factor=365.0, importance_factor=0.988}
+clean_up_threshold_dict = {recency_threshold=0.05, importance_threshold=5}

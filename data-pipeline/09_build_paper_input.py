@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import time
 import pickle
 import argparse
@@ -10,11 +11,17 @@ import httpx
 import yfinance as yf
 import pytz
 from dateutil import parser
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 
 ALPACA_DEFAULT_NEWS_ENDPOINT = "https://data.alpaca.markets/v1beta1/news"
+OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_OPENROUTER_NEWS_MODEL = "deepseek/deepseek-v4-flash"
+DEFAULT_OPENROUTER_NEWS_FALLBACK_MODELS = (
+    "qwen/qwen3.6-35b-a3b",
+    "qwen/qwen3-32b",
+)
 SEC_QUERY_ENDPOINT = "https://api.sec-api.io"
 SEC_EXTRACT_ENDPOINT = "https://api.sec-api.io/extractor"
 DEFAULT_MARKET_MODE = "US"
@@ -175,11 +182,129 @@ def _build_news_headers() -> Dict[str, str]:
     }
 
 
+def _rotate_env_file_paths() -> List[str]:
+    """Extra .env paths (comma-separated) with alternate Alpaca/SEC keys."""
+    raw = (
+        os.environ.get("FINMEM_ROTATE_ENV_FILES")
+        or os.environ.get("FINMEM_ALPACA_ROTATE_ENV_FILES")
+        or ""
+    ).strip()
+    out: List[str] = []
+    for part in raw.split(","):
+        p = part.strip()
+        if not p:
+            continue
+        path = p if os.path.isabs(p) else os.path.join(os.getcwd(), p)
+        if os.path.isfile(path):
+            out.append(path)
+        else:
+            print(f"Warning: FINMEM_ROTATE_ENV_FILES entry not found: {path}")
+    return out
+
+
+def _alpaca_headers_from_values(vals: Optional[Dict[str, Optional[str]]]) -> Optional[Dict[str, str]]:
+    if not vals:
+        return None
+    api_key = vals.get("ALPACA_API_KEY") or vals.get("ALPACA_KEY")
+    api_secret = vals.get("ALPACA_API_SECRET_KEY") or vals.get("ALPACA_KEY_SECRET_KEY")
+    if not api_key or not api_secret:
+        return None
+    return {
+        "Apca-Api-Key-Id": str(api_key).strip(),
+        "Apca-Api-Secret-Key": str(api_secret).strip(),
+    }
+
+
+def _alpaca_news_headers_chain() -> List[Dict[str, str]]:
+    """Primary env first, then Alpaca keys from FINMEM_ROTATE_ENV_FILES (deduped)."""
+    primary = _build_news_headers()
+    chain: List[Dict[str, str]] = [primary]
+    seen = {primary["Apca-Api-Key-Id"]}
+    for path in _rotate_env_file_paths():
+        alt = _alpaca_headers_from_values(dotenv_values(path))
+        if not alt:
+            continue
+        kid = alt["Apca-Api-Key-Id"]
+        if kid in seen:
+            continue
+        seen.add(kid)
+        chain.append(alt)
+    return chain
+
+
 def _get_sec_key() -> str:
     sec_key = os.environ.get("SEC_KEY")
     if not sec_key:
         raise ValueError("Missing SEC_KEY in environment. SEC filings are required.")
     return sec_key
+
+
+def _sec_key_chain() -> List[str]:
+    """Primary SEC_KEY from env, then SEC_KEY from each rotate env file (deduped)."""
+    primary = _get_sec_key()
+    chain: List[str] = [primary]
+    seen = {primary}
+    for path in _rotate_env_file_paths():
+        vals = dotenv_values(path) or {}
+        sk = vals.get("SEC_KEY")
+        if not sk:
+            continue
+        sk = str(sk).strip()
+        if sk and sk not in seen:
+            seen.add(sk)
+            chain.append(sk)
+    return chain
+
+
+def _is_api_quota_error(exc: BaseException) -> bool:
+    s = str(exc).lower()
+    return (
+        "429" in s
+        or "403" in s
+        or "rate limit" in s
+        or "too many requests" in s
+        or "quota" in s
+    )
+
+
+def _key_rotate_sleep_seconds() -> float:
+    try:
+        return max(
+            0.0,
+            float((os.environ.get("FINMEM_KEY_ROTATE_SLEEP_SECONDS") or "2").strip()),
+        )
+    except ValueError:
+        return 2.0
+
+
+def _build_filing_maps_rotating(
+    symbol: str,
+    start_day: date,
+    end_day: date,
+    trading_days: List[date],
+) -> Tuple[Dict[date, str], Dict[date, str]]:
+    keys = _sec_key_chain()
+    last_err: Optional[Exception] = None
+    for ki, sec_key in enumerate(keys):
+        try:
+            return _build_filing_maps(
+                symbol=symbol,
+                start_day=start_day,
+                end_day=end_day,
+                trading_days=trading_days,
+                sec_key=sec_key,
+            )
+        except ValueError as exc:
+            last_err = exc
+            if not _is_api_quota_error(exc) or ki + 1 >= len(keys):
+                raise
+            print(
+                f"  SEC API rate/quota error; switching SEC key ({ki + 2}/{len(keys)})."
+            )
+            time.sleep(_key_rotate_sleep_seconds())
+    if last_err:
+        raise last_err
+    raise ValueError("SEC filing download failed: no SEC keys configured")
 
 
 def _download_prices_us(symbol: str, start_day: date, end_day: date) -> Dict[date, float]:
@@ -299,7 +424,19 @@ def _download_prices(
     raise ValueError(f"Unsupported market mode: {market_mode}")
 
 
-def _fetch_news_for_day(
+def _resolve_us_news_source() -> str:
+    raw = (os.environ.get("FINMEM_US_NEWS_SOURCE") or "alpaca").strip().lower()
+    if raw in {"alpaca", "openrouter", "auto"}:
+        return raw
+    raise ValueError(
+        "FINMEM_US_NEWS_SOURCE must be one of: alpaca, openrouter, auto "
+        f"(got {raw!r}). "
+        "Note: auto uses Alpaca only (with FINMEM_ROTATE_ENV_FILES key rotation on 429); "
+        "it does not fall back to OpenRouter."
+    )
+
+
+def _fetch_us_news_alpaca_for_day(
     client: httpx.Client,
     endpoint: str,
     headers: Dict[str, str],
@@ -330,7 +467,9 @@ def _fetch_news_for_day(
         )
         resp = client.get(request_url, headers=headers, timeout=60)
         if resp.status_code != 200:
-            raise ValueError(f"Alpaca news request failed: {resp.status_code} {resp.text}")
+            raise ValueError(
+                f"Alpaca news request failed: {resp.status_code} {resp.text}"
+            )
 
         payload = resp.json()
         for item in payload.get("news", []):
@@ -355,25 +494,196 @@ def _fetch_news_for_day(
     return news_texts
 
 
+def _openrouter_api_key() -> Optional[str]:
+    return os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_KEY")
+
+
+_OPENROUTER_NEWS_RETRY_STATUSES = frozenset({429, 502, 503})
+
+
+def _openrouter_news_model_chain() -> List[str]:
+    """Primary model first, then fallbacks (deduped). Override fallbacks via env."""
+    primary = (
+        os.environ.get("FINMEM_OPENROUTER_MODEL") or DEFAULT_OPENROUTER_NEWS_MODEL
+    ).strip()
+    raw_fb = (os.environ.get("FINMEM_OPENROUTER_NEWS_MODEL_FALLBACKS") or "").strip()
+    if raw_fb:
+        fallbacks = [p.strip() for p in raw_fb.split(",") if p.strip()]
+    else:
+        fallbacks = list(DEFAULT_OPENROUTER_NEWS_FALLBACK_MODELS)
+    seen: set = set()
+    out: List[str] = []
+    for m in [primary] + fallbacks:
+        if m and m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
+
+
+def _fetch_us_news_openrouter_for_day(
+    client: httpx.Client,
+    symbol: str,
+    cur_day: date,
+    max_news_per_day: int,
+) -> List[str]:
+    key = _openrouter_api_key()
+    if not key:
+        raise ValueError(
+            "OPENROUTER_API_KEY is required for OpenRouter US news. "
+            "Set it in the environment or .env file."
+        )
+    models = _openrouter_news_model_chain()
+    try:
+        fb_sleep = float(
+            (os.environ.get("FINMEM_OPENROUTER_MODEL_FALLBACK_SLEEP_SECONDS") or "3").strip()
+        )
+    except ValueError:
+        fb_sleep = 3.0
+    fb_sleep = max(0.0, fb_sleep)
+
+    cap_raw = os.environ.get("FINMEM_OPENROUTER_MAX_SNIPPETS", "25").strip()
+    try:
+        snippet_cap = int(cap_raw)
+    except ValueError:
+        snippet_cap = 25
+    snippet_cap = max(1, min(snippet_cap, 50))
+    n = min(max_news_per_day, snippet_cap)
+    user_prompt = (
+        f'For the US stock ticker {symbol} on {cur_day.isoformat()}, '
+        f"produce a JSON array of exactly {n} distinct short English strings. "
+        f"Each string is one plausible financial news headline or one-sentence "
+        f"market item for that calendar day (generic public-market context only; "
+        f"do not claim non-public or insider facts). "
+        f"Output nothing except the JSON array, no markdown."
+    )
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/pipiku915/FinMem-LLM-StockTrading",
+        "X-Title": "FinMem data build",
+    }
+    last_fail: Optional[ValueError] = None
+    for mi, model in enumerate(models):
+        if mi > 0 and fb_sleep > 0:
+            time.sleep(fb_sleep)
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You reply with only valid JSON when the user asks for a JSON array.",
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.45,
+            "max_tokens": min(4096, 80 * n + 200),
+        }
+        resp = client.post(
+            OPENROUTER_CHAT_COMPLETIONS_URL,
+            headers=headers,
+            json=payload,
+            timeout=120.0,
+        )
+        if resp.status_code == 200:
+            break
+        err = ValueError(
+            f"OpenRouter request failed: {resp.status_code} {resp.text}"
+        )
+        last_fail = err
+        retryable = resp.status_code in _OPENROUTER_NEWS_RETRY_STATUSES
+        if retryable and mi + 1 < len(models):
+            print(
+                f"  OpenRouter model {model!r} returned {resp.status_code} on "
+                f"{cur_day}; trying next model."
+            )
+            continue
+        raise err
+    else:
+        if last_fail:
+            raise last_fail
+        raise ValueError("OpenRouter: no models configured")
+
+    data = resp.json()
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError(f"OpenRouter response missing message content: {data!r}") from exc
+    content = (content or "").strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"\s*```\s*$", "", content)
+    try:
+        arr = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"OpenRouter returned non-JSON content: {content[:500]!r}") from exc
+    if not isinstance(arr, list):
+        raise ValueError("OpenRouter JSON must be an array of strings")
+    news_texts: List[str] = []
+    seen = set()
+    for item in arr:
+        text = _normalize_text(str(item))
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        news_texts.append(text)
+        if len(news_texts) >= max_news_per_day:
+            break
+    return news_texts
+
+
 def _download_news(
     symbol: str,
     trading_days: List[date],
     endpoint: str,
-    headers: Dict[str, str],
+    headers: Optional[Dict[str, str]],
     max_news_per_day: int,
     sleep_s: float,
 ) -> Dict[date, List[str]]:
+    source = _resolve_us_news_source()
     news_by_day: Dict[date, List[str]] = {}
+    alpaca_header_sets: Optional[List[Dict[str, str]]] = None
+    if source in {"alpaca", "auto"}:
+        alpaca_header_sets = _alpaca_news_headers_chain()
     with httpx.Client() as client:
         for i, cur_day in enumerate(trading_days, start=1):
-            texts = _fetch_news_for_day(
-                client=client,
-                endpoint=endpoint,
-                headers=headers,
-                symbol=symbol,
-                cur_day=cur_day,
-                max_news_per_day=max_news_per_day,
-            )
+            if source == "openrouter":
+                texts = _fetch_us_news_openrouter_for_day(
+                    client=client,
+                    symbol=symbol,
+                    cur_day=cur_day,
+                    max_news_per_day=max_news_per_day,
+                )
+            elif source in {"alpaca", "auto"}:
+                assert alpaca_header_sets is not None
+                last_exc: Optional[ValueError] = None
+                texts: List[str] = []
+                for hi, hdr in enumerate(alpaca_header_sets):
+                    try:
+                        texts = _fetch_us_news_alpaca_for_day(
+                            client=client,
+                            endpoint=endpoint,
+                            headers=hdr,
+                            symbol=symbol,
+                            cur_day=cur_day,
+                            max_news_per_day=max_news_per_day,
+                        )
+                        last_exc = None
+                        break
+                    except ValueError as exc:
+                        last_exc = exc
+                        if not _is_api_quota_error(exc) or hi + 1 >= len(
+                            alpaca_header_sets
+                        ):
+                            raise
+                        print(
+                            f"  Alpaca rate/quota on {cur_day}; "
+                            f"switching Alpaca key ({hi + 2}/{len(alpaca_header_sets)})."
+                        )
+                        time.sleep(_key_rotate_sleep_seconds())
+                if last_exc is not None:
+                    raise last_exc
+            else:  # pragma: no cover
+                raise RuntimeError(f"Unexpected US news source: {source!r}")
             news_by_day[cur_day] = texts
             if i % 25 == 0:
                 print(f"Fetched news for {i}/{len(trading_days)} trading days")
@@ -879,7 +1189,6 @@ def build_market_input(
 ) -> None:
     _load_dotenv_compat()
     market_mode = _resolve_market_mode(market_mode)
-    sec_key = _get_sec_key() if market_mode == "US" else ""
 
     print(f"Step 1/5: Downloading price data (market={market_mode})")
     prices = _download_prices(
@@ -892,14 +1201,33 @@ def build_market_input(
     print(f"Trading days: {len(trading_days)} | Range: {trading_days[0]} -> {trading_days[-1]}")
 
     if market_mode == "US":
-        print("Step 2/5: Downloading Alpaca news")
-        news_endpoint = os.environ.get("ALPACA_NEWS_ENDPOINT", ALPACA_DEFAULT_NEWS_ENDPOINT).rstrip("/")
-        headers = _build_news_headers()
+        us_src = _resolve_us_news_source()
+        if us_src == "openrouter":
+            print("Step 2/5: US news via OpenRouter (LLM-generated snippets)")
+            news_endpoint = ALPACA_DEFAULT_NEWS_ENDPOINT
+        elif us_src == "auto":
+            print(
+                "Step 2/5: US news via Alpaca (switch Alpaca keys on rate limits; "
+                "see FINMEM_ROTATE_ENV_FILES)"
+            )
+            news_endpoint = os.environ.get(
+                "ALPACA_NEWS_ENDPOINT", ALPACA_DEFAULT_NEWS_ENDPOINT
+            ).rstrip("/")
+        else:
+            print("Step 2/5: Downloading Alpaca news")
+            if _rotate_env_file_paths():
+                print(
+                    "  Alternate Alpaca keys loaded from FINMEM_ROTATE_ENV_FILES "
+                    "(used on 429 / quota errors)."
+                )
+            news_endpoint = os.environ.get(
+                "ALPACA_NEWS_ENDPOINT", ALPACA_DEFAULT_NEWS_ENDPOINT
+            ).rstrip("/")
         news_by_day = _download_news(
             symbol=symbol,
             trading_days=trading_days,
             endpoint=news_endpoint,
-            headers=headers,
+            headers=None,
             max_news_per_day=max_news_per_day,
             sleep_s=sleep_s,
         )
@@ -933,12 +1261,16 @@ def build_market_input(
 
     if market_mode == "US":
         print("Step 4/5: Downloading SEC filings (10-K Item 7, 10-Q part1item2)")
-        filing_k_map, filing_q_map = _build_filing_maps(
+        if len(_sec_key_chain()) > 1:
+            print(
+                "  Multiple SEC keys available (FINMEM_ROTATE_ENV_FILES); "
+                "switching if the API returns rate/quota errors."
+            )
+        filing_k_map, filing_q_map = _build_filing_maps_rotating(
             symbol=symbol,
             start_day=start_day,
             end_day=end_day,
             trading_days=trading_days,
-            sec_key=sec_key,
         )
     else:
         print("Step 4/5: Skipping SEC filings for VN market")

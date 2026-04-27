@@ -1,10 +1,8 @@
 """
-Compatibility shim: provides a custom ValidChoices validator for guardrails 0.4.x.
+Compatibility shim: custom ValidChoices validator for guardrails.
 
-guardrails 0.4.x already has Guard.from_pydantic(output_class, prompt, num_reasks)
-and Guard.__call__(llm_api, prompt_params, num_reasks) natively, so no patching
-of Guard is needed.  Only ValidChoices is reimplemented here because the one in
-guardrails.validators is deprecated and slated for removal.
+Reflection uses Guard.for_pydantic + messages=... (guardrails 0.6+).  ValidChoices
+is reimplemented because guardrails.validators.ValidChoices was deprecated.
 """
 from typing import Any, Dict
 
