@@ -93,7 +93,8 @@ mkdir -p "$TRAIN_CHECKPOINT" "$TRAIN_OUTPUT" "$TEST_CHECKPOINT" "$TEST_OUTPUT" d
   -mm "$MARKET_MODE_UC" \
   -cp "$CONFIG_PATH" \
   -ckp "$TRAIN_CHECKPOINT" \
-  -rp "$TRAIN_OUTPUT"
+  -rp "$TRAIN_OUTPUT" \
+  --trading-symbol "$SYMBOL"
 
 "$PYTHON_BIN" run.py sim \
   -mdp "$MARKET_DATA_PATH" \
@@ -104,7 +105,8 @@ mkdir -p "$TRAIN_CHECKPOINT" "$TRAIN_OUTPUT" "$TEST_CHECKPOINT" "$TEST_OUTPUT" d
   -cp "$CONFIG_PATH" \
   -tap "$TRAIN_OUTPUT" \
   -ckp "$TEST_CHECKPOINT" \
-  -rp "$TEST_OUTPUT"
+  -rp "$TEST_OUTPUT" \
+  --trading-symbol "$SYMBOL"
 
 "$PYTHON_BIN" run.py sim-rl \
   --algorithm all \

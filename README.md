@@ -59,6 +59,7 @@ finmem/
 |- run_cerebras.sh        # Simple Cerebras wrapper script
 |- run_gemini.sh          # Simple Gemini-compatible wrapper script
 |- run_tgi.sh             # Simple TGI-compatible wrapper script
+|- scripts/               # Batch / isolated-paper / env-stack helpers
 |- setup.sh               # One-command setup for sample data flow
 |- pyproject.toml
 |- README.md
@@ -146,6 +147,61 @@ Build/eval helper overrides:
 | `FINMEM_EVAL_START`, `FINMEM_EVAL_END` | Defaults for metrics/plot scripts |
 | `FINMEM_STATE_DICT_PATH` | Default FinMem state dict path for eval scripts |
 
+## Full end-to-end run: six tickers (US + VN)
+
+This repo includes scripts so a clean clone can run the **same near-paper pipeline as** `run_paper_eval.sh` (train → test → `sim-rl` → 5-measure metrics → plot) for:
+
+| Ticker | Market | Input date range (build `09_build_paper_input.py`) | Train / test split (eval) |
+| --- | --- | --- | --- |
+| NFLX, AMZN, MSFT | US | `2021-08-17` – `2023-04-10` | Paper: train `2021-08-17`–`2022-10-05`, test `2022-10-06`–`2023-04-10` |
+| BID | VN | `2025-04-01` – `2025-05-31` | Calendar months: train `2025-04`, test `2025-05` (trading days from pickle) |
+| MBB | VN | `2025-07-01` – `2025-08-31` | Train `2025-07`, test `2025-08` |
+| FPT | VN | `2025-05-01` – `2025-06-30` | Train `2025-05`, test `2025-06` |
+
+VN builds should use KBS + translation before VADER (see table above): `FINMEM_VNSTOCK_SOURCE=KBS`, `FINMEM_VN_TRANSLATE_FOR_VADER=1`.
+
+**Requirements:** `.env` filled from `.env.example` (at minimum `ALPACA_*`, `SEC_KEY` for US data build; `CEREBRAS_API_KEY` for all LLM sims in this config; `HF_TOKEN` if you need to download translation/embedding models). **Do not commit real keys.** Long runs (often **many hours per US symbol**) should use a stable session: `nohup`, `tmux`/`screen`, and on macOS `caffeinate` so the machine does not sleep.
+
+**One script — build (if needed) and run all six in order** (isolated output dirs: `data/09_results_nflx/`, `data/09_results_amzn/`, … so runs do not overwrite each other):
+
+```bash
+source .venv/bin/activate
+# Optional: set -a; source scripts/source_env_stack.sh .env .env.alternate; set +a
+bash scripts/run_readme_batch_all.sh
+```
+
+Environment flags for that script:
+
+- `SKIP_BUILD=1` — only run eval; expects pickles under `data/03_model_input/<ticker>.pkl` already.
+- `FORCE_REBUILD=1` — always re-run `09_build_paper_input.py` (slower, uses APIs).
+
+**Resume after an interrupted US train (NFLX) and finish the rest of the queue** — completes NFLX (checkpoint → test → RL → metrics), then runs AMZN, MSFT, and the three VN symbols:
+
+```bash
+# macOS: keeps the system awake while the outer shell runs (plugged in)
+caffeinate -dims bash scripts/run_continue_to_completion.sh
+```
+
+**Single symbol, paper dates from env** (US or VN month pair auto-filled for VN):
+
+```bash
+SYMBOL=AMZN MARKET_MODE=US bash scripts/run_isolated_paper_eval.sh
+export FINMEM_VN_TRANSLATE_FOR_VADER=1
+SYMBOL=BID MARKET_MODE=VN VN_TRAIN_MONTH=2025-04 VN_TEST_MONTH=2025-05 bash scripts/run_isolated_paper_eval.sh
+```
+
+**Inspect VN train/test dates derived from a pickle** (optional):
+
+```bash
+python scripts/vn_train_test_from_pkl.py data/03_model_input/bid.pkl --train-month 2025-04 --test-month 2025-05
+```
+
+**Stack multiple env files** (e.g. rotate API keys) without bash-unfriendly `.env` spacing issues:
+
+```bash
+set -a; source scripts/source_env_stack.sh .env .env.backup; set +a
+```
+
 ## Build Market Input Data
 
 ### US market
@@ -219,8 +275,11 @@ python run.py sim-checkpoint \
   -cp config/finmem_cerebras_config.toml \
   -rm train \
   -ckp data/06_train_checkpoint \
-  -rp data/05_train_model_output
+  -rp data/05_train_model_output \
+  --trading-symbol TSLA
 ```
+
+Pass `--trading-symbol` (or set `FINMEM_TRADING_SYMBOL`) so the checkpoint symbol matches the pickle (e.g. NFLX, not the default `TSLA`).
 
 ### Near-paper split helper
 
@@ -311,6 +370,11 @@ Saved RL action artifacts:
 - `run_gemini.sh`: quick wrapper using Gemini-style config
 - `run_tgi.sh`: quick wrapper for TGI endpoint config
 - `run_paper_eval.sh`: canonical full helper (train + test + RL + 5-measure metrics/plot)
+- `scripts/run_readme_batch_all.sh`: build (optional) + isolated paper eval for NFLX, AMZN, MSFT, BID, MBB, FPT
+- `scripts/run_isolated_paper_eval.sh`: same as `run_paper_eval.sh` with per-ticker `data/09_results_<ticker>/` (and VN month envs)
+- `scripts/run_continue_to_completion.sh`: resume NFLX train from `data/06_train_checkpoint_nflx/`, then the remaining tickers
+- `scripts/vn_train_test_from_pkl.py`: print or export train/test dates for VN month splits
+- `scripts/source_env_stack.sh`: load multiple dotenv files in order (later overrides)
 
 ## Artifact Lifecycle and Cleanup
 
