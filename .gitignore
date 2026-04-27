@@ -194,10 +194,14 @@ data/04_model_output_log/
 
 # Local batch runner (do not commit)
 data/readme_batch.pid
+data/readme_batch_vn.pid
 data/readme_batch_all.log
+data/readme_batch_vn.log
+
+# Fake / demo sample tree (optional; setup.sh no longer creates by default)
+data/06_input/
 
 # Explicitly track essential model input files
 !data/03_model_input/tsla.pkl
-!data/06_input/subset_symbols.pkl
 
 data/test_*/

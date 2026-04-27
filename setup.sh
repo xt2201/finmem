@@ -17,12 +17,13 @@ source .venv/bin/activate
 echo ">> Installing dependencies..."
 uv pip install -r pyproject.toml
 
-# 4. Prepare data
-echo ">> Preparing sample data..."
-unzip -o data-pipeline/Fake-Sample-Data.zip -d data/06_input/
-
-echo ">> Converting dataset format..."
-python -c "
+# 4. Optional fake sample (OFF by default — real runs use data-pipeline/09_build_paper_input.py)
+if [ "${FINMEM_SETUP_INCLUDE_FAKE:-0}" = "1" ]; then
+  echo ">> FINMEM_SETUP_INCLUDE_FAKE=1: unpacking Fake-Sample-Data (demo only)..."
+  mkdir -p data/06_input
+  unzip -o data-pipeline/Fake-Sample-Data.zip -d data/06_input/
+  echo ">> Converting dataset format..."
+  python -c "
 import pickle
 import os
 
@@ -34,11 +35,11 @@ if os.path.exists(input_path):
         d = pickle.load(f)
     new_d = {
         k: {
-            'price': v[0].get('price', {}), 
-            'news': v[1].get('news', {}), 
-            'filing_q': v[2].get('filing_q', {}), 
-            'filing_k': v[3].get('filing_k', {})
-        } 
+            'price': v[0].get('price', {}),
+            'news': v[1].get('news', {}),
+            'filing_q': v[2].get('filing_q', {}),
+            'filing_k': v[3].get('filing_k', {}),
+        }
         for k, v in d.items()
     }
     with open(output_path, 'wb') as f:
@@ -47,6 +48,9 @@ if os.path.exists(input_path):
 else:
     print(f'Error: Could not find {input_path}')
 "
+else
+  echo ">> Skipping fake sample data (set FINMEM_SETUP_INCLUDE_FAKE=1 to enable)."
+fi
 
 echo ""
 echo "======================================"
